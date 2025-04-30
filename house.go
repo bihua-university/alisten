@@ -5,7 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wdvxdr1123/alisten/music"
+	"github.com/wdvxdr1123/alisten/internal/music"
+	"github.com/wdvxdr1123/alisten/internal/syncx"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ type House struct {
 	Connection []*Connection
 
 	// private
+	queue syncx.UnboundedChan[[]byte]
 	close chan struct{}
 }
 
@@ -53,6 +55,9 @@ func addHouse(c *gin.Context) {
 		Password: requestBody.Password,
 		Playlist: make([]Order, 0),
 		VoteSkip: make([]string, 0),
+
+		queue: syncx.NewUnboundedChan[[]byte](8),
+		close: make(chan struct{}),
 	}
 	housesMu.Lock()
 	houses[houseId] = house
@@ -100,7 +105,7 @@ func searchHouses(c *gin.Context) {
 		response = append(response, map[string]interface{}{
 			"id":           houseId,
 			"name":         house.Name,
-			"desc":         "测试",
+			"desc":         house.Desc,
 			"population":   len(house.Connection),
 			"createTime":   time.Now().UnixMilli(),
 			"needPwd":      house.Password != "",
@@ -147,7 +152,6 @@ func (h *House) lock(fn func()) {
 }
 
 func (h *House) Start() {
-	h.close = make(chan struct{})
 	ticker := time.NewTicker(time.Millisecond * 500)
 	go func() {
 		for {
@@ -155,6 +159,12 @@ func (h *House) Start() {
 			case <-h.close:
 				ticker.Stop()
 				return
+			case j := <-h.queue.Out():
+				h.lock(func() {
+					for _, conn := range h.Connection {
+						conn.SendRaw(j)
+					}
+				})
 			case <-ticker.C:
 				h.Update()
 			}
@@ -164,54 +174,57 @@ func (h *House) Start() {
 
 func (h *House) Broadcast(msg any) {
 	j := encJson(msg)
-	for _, conn := range h.Connection {
-		conn.SendRaw(j)
-	}
+	h.queue.In() <- j
 }
 
 func (h *House) Update() {
-	h.Mu.Lock()
-	defer h.Mu.Unlock()
+	var play Order
 
 	change := false
-
-	// no song to play
-	if h.Current.id == "" || h.End.Before(time.Now()) {
-		if len(h.Playlist) > 0 {
-			h.Current = h.Playlist[0]
-			h.Playlist = h.Playlist[1:]
-			change = true
+	h.lock(func() {
+		// no song to play
+		if h.Current.id == "" || h.End.Before(time.Now()) {
+			if len(h.Playlist) > 0 {
+				h.Current = h.Playlist[0]
+				h.Playlist = h.Playlist[1:]
+				play = h.Current
+				change = true
+			}
 		}
-	}
 
-	// still no song
-	if h.Current.id == "" {
-		return
-	}
-
+		// still no song
+		if h.Current.id == "" {
+			return
+		}
+	})
 	if change {
-		h.push(h.Current)
+		h.Push(play)
+		h.PushPlaylist()
 	}
 }
 
-func (h *House) push(o Order) {
+func (h *House) Push(o Order) {
 	m := music.GetMusic(o.source, o.id)
 	duration, ok := m["duration"].(int64)
 	if !ok {
 		return
 	}
 
-	now := time.Now()
-	h.PushTime = now.Add(200 * time.Millisecond).UnixMilli() // 200ms delay
-	h.End = now.Add(time.Duration(duration) * time.Millisecond)
-
-	r := merge(m, gin.H{
-		"pushTime": h.PushTime, // delay 500ms
+	var r gin.H
+	h.lock(func() {
+		now := time.Now()
+		h.PushTime = now.Add(200 * time.Millisecond).UnixMilli() // 200ms delay
+		h.End = now.Add(time.Duration(duration) * time.Millisecond)
+		r = merge(m, gin.H{
+			"pushTime": h.PushTime, // delay 500ms
+		})
 	})
+
 	h.Broadcast(r)
 }
 
 func (h *House) enter(c *Connection) {
+	var list []gin.H
 	h.lock(func() {
 		if h.Current.id != "" {
 			// 发送播放单曲
@@ -221,9 +234,9 @@ func (h *House) enter(c *Connection) {
 			})
 			c.Send(r)
 		}
+		list = h.playlist()
 	})
 	// 推送播放列表
-	list := h.playlist()
 	c.Send(gin.H{
 		"type": "pick",
 		"data": list,
@@ -242,38 +255,40 @@ func (h *House) playlist() []gin.H {
 		}))
 	}
 
-	h.lock(func() {
-		push(h.Current)
-		for _, o := range h.Playlist {
-			push(o)
-		}
-	})
-
+	push(h.Current)
+	for _, o := range h.Playlist {
+		push(o)
+	}
 	return list
 }
 
 func (h *House) PushPlaylist() {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
 	list := h.playlist()
+	online := len(h.Connection)
 	h.Broadcast(gin.H{
-		"type": "pick",
-		"data": list,
+		"type":         "pick",
+		"data":         list,
+		"online_count": online,
 	})
 }
 
 func (h *House) Skip() {
+	var play Order
+	change := false
 	h.lock(func() {
-		change := false
 		if len(h.Playlist) > 0 {
 			h.Current = h.Playlist[0]
 			h.Playlist = h.Playlist[1:]
+			play = h.Current
 			change = true
 		}
-
-		if change {
-			h.push(h.Current)
-		}
 	})
-	h.PushPlaylist()
+	if change {
+		h.Push(play)
+		h.PushPlaylist()
+	}
 }
 
 func houseuser(c *Context) {

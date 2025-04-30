@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/wdvxdr1123/alisten/internal/syncx"
+
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
 )
@@ -26,7 +28,7 @@ func (c *Context) WithHouse(f func(*House)) {
 
 type Connection struct {
 	ip   string
-	send chan []byte
+	send syncx.UnboundedChan[[]byte]
 
 	mu   sync.Mutex
 	user string
@@ -36,7 +38,7 @@ type Connection struct {
 
 func (c *Connection) Start() {
 	go func() {
-		for x := range c.send {
+		for x := range c.send.Out() {
 			_ = c.conn.WriteMessage(websocket.TextMessage, x)
 		}
 	}()
@@ -58,5 +60,5 @@ func (c *Connection) Send(j any) {
 }
 
 func (c *Connection) SendRaw(j []byte) {
-	c.send <- j
+	c.send.In() <- j
 }

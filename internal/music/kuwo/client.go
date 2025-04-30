@@ -50,13 +50,11 @@ func (k *Client) SearchMusic(pageNo, pageSize int, kw string) *KWSearchResp {
 
 const KWSearchApi = "https://search.kuwo.cn/r.s?pn=%d&rn=%d&all=%s&ft=music&newsearch=1&alflac=1&itemset=web_2013&client=kt&cluster=0&vermerge=1&rformat=json&encoding=utf8&show_copyright_off=1&pcmp4=1&ver=mbox&plat=pc&vipver=1&devid=11404450&newver=1&issubtitle=1&pcjson=1"
 
-var (
-	KWSearchHead = map[string]string{
-		"user_agent": `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.50`,
-		"accept":     `text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7`,
-		"referer":    `http://kuwo.cn/search/list?key=%E6%81%90%E9%BE%99%E6%8A%97%E7%8B%BC8`,
-		"Secret":     "13261c0dccfeac48dd7a8b33de9fd1bb59e7bcd1fbda77ed3a2e42bce5fc7e0f0036d507",
-		"Cross":      "e5191b2eb629a3da9dc6868755a3e779",
-		"Cookie":     "ga=GA1.2.1860922824.1635265329; Hm_lvt_cdb524f42f0ce19b169a8071123a4797=1663159268; gid=9ed7ed0b-8d4b-4167-8c9d-f1f2c55642f7; Hm_token=et7csP3xeQfeadZsDEazXEpEXhmjTC4k; Hm_Iuvt_cdb524f42f0ce19b169b8072123a4727=Mzfa6zAAcAfszyHFdREYF7KfBRNmAEi4",
-	}
-)
+var KWSearchHead = map[string]string{
+	"user_agent": `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.50`,
+	"accept":     `text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7`,
+	"referer":    `http://kuwo.cn/search/list?key=%E6%81%90%E9%BE%99%E6%8A%97%E7%8B%BC8`,
+	"Secret":     "13261c0dccfeac48dd7a8b33de9fd1bb59e7bcd1fbda77ed3a2e42bce5fc7e0f0036d507",
+	"Cross":      "e5191b2eb629a3da9dc6868755a3e779",
+	"Cookie":     "ga=GA1.2.1860922824.1635265329; Hm_lvt_cdb524f42f0ce19b169a8071123a4797=1663159268; gid=9ed7ed0b-8d4b-4167-8c9d-f1f2c55642f7; Hm_token=et7csP3xeQfeadZsDEazXEpEXhmjTC4k; Hm_Iuvt_cdb524f42f0ce19b169b8072123a4727=Mzfa6zAAcAfszyHFdREYF7KfBRNmAEi4",
+}

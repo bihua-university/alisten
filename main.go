@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wdvxdr1123/alisten/internal/base"
+	"github.com/wdvxdr1123/alisten/internal/syncx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
@@ -23,6 +26,9 @@ var upgrader = websocket.Upgrader{
 } // use default options
 
 func main() {
+	base.InitConfig()
+
+	gin.SetMode(gin.ReleaseMode)
 	// 房间相关路由
 	g := gin.Default()
 	g.Use(Cors())
@@ -64,7 +70,7 @@ func main() {
 			conn: wc,
 			ip:   ip,
 			user: "(" + ip + ")",
-			send: make(chan []byte, 16),
+			send: syncx.NewUnboundedChan[[]byte](8),
 		}
 
 		house.Mu.Lock()
@@ -112,7 +118,7 @@ func main() {
 		}
 	})
 
-	log.Fatal(http.ListenAndServe(":8080", g))
+	log.Fatal(http.ListenAndServe(base.Config.Addr, g))
 }
 
 var route = map[string]func(ctx *Context){
@@ -120,6 +126,8 @@ var route = map[string]func(ctx *Context){
 	"/setting/name":         setName,
 	"/music/search":         searchMusic,
 	"/music/pick":           pickMusic,
+	"/music/delete":         deleteMusic,
+	"/music/good":           goodMusic,
 	"/music/skip/vote":      voteSkip,
 	"/music/searchsonglist": searchList,
 	"/house/houseuser":      houseuser,
@@ -136,25 +144,6 @@ func Cors() gin.HandlerFunc {
 		}
 		c.Next()
 	}
-}
-
-func _() {
-	r := gin.Default()
-
-	// 房间相关路由
-	houseGroup := r.Group("/house")
-	{
-		houseGroup.Any("/enter", enterHouse)
-	}
-
-	// 音乐相关路由
-	musicGroup := r.Group("/music")
-	{
-		musicGroup.Any("/delete", deleteMusic)
-		musicGroup.Any("/top", topMusic)
-	}
-
-	r.Run(":8080")
 }
 
 func maskIP(ip string) string {

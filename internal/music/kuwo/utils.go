@@ -29,9 +29,6 @@ type HttpResp struct {
 }
 
 func HttpGetWithHeader(api string, h map[string]string) HttpResp {
-
-	// api = "http://nmobi.kuwo.cn/mobi.s?f=kuwo&q=QTTCEVWADWjGHNKyqOt6peSJECe9IlwYOThEXM42tOPVu6boc62uWnhTsSmlQDn46NvDv+yKU0JVRFu8k+uReJLGA0BF5mBYu2iIKCWTWoRUmBZbIhiYmGiFA4VBFQxTYkMBmqrM6z3Y5Dv+PlOhaTSKohr6nLrrpcwj+9uutB3eZ+rwhGxxUTDr4X9EK/thXu7we7ZPNj4d1DNod+PNHN/dhLfP8Bb+vN5Wm7nYA5652W77PsEkq0AyTjnXztdYpv2gWTB2SyIRwzfRMnIiU2yxs2+btb06Y90o3XTg2o+1E92itYrzMA=="
-
 	var result HttpResp
 	request, err := http.NewRequest("GET", api, nil)
 	if err != nil {

@@ -10,7 +10,7 @@ func chat(c *Context) {
 	// 转发所有消息
 	msg := gin.H{
 		"type":     "chat",
-		"nickName": c.conn.user,
+		"nickName": c.conn.GetUser(),
 		"sendTime": c.data.Get("sendTime").Int(),
 		"content":  c.data.Get("content").String(),
 	}
@@ -20,7 +20,7 @@ func chat(c *Context) {
 func (c *Context) Chat(msg string) {
 	h := gin.H{
 		"type":     "chat",
-		"nickName": c.conn.user,
+		"nickName": c.conn.GetUser(),
 		"sendTime": time.Now().UnixMilli(),
 		"content":  msg,
 	}
