@@ -184,3 +184,15 @@ func searchList(c *Context) {
 		"totalSize": r.Total,
 	})
 }
+
+func playMode(c *Context) {
+	mode := c.Get("mode").String()
+	c.WithHouse(func(house *House) {
+		switch mode {
+		case "normal":
+			house.Mode = NormalMode
+		case "random":
+			house.Mode = RandomMode
+		}
+	})
+}

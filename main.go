@@ -130,6 +130,7 @@ var route = map[string]func(ctx *Context){
 	"/music/good":           goodMusic,
 	"/music/skip/vote":      voteSkip,
 	"/music/searchsonglist": searchList,
+	"/music/playmode":       playMode,
 	"/house/houseuser":      houseuser,
 }
 

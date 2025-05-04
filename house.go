@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
@@ -12,11 +13,19 @@ import (
 	"github.com/google/uuid"
 )
 
+type Mode int
+
+const (
+	NormalMode Mode = iota
+	RandomMode
+)
+
 type House struct {
 	Mu         sync.Mutex
 	Name       string
 	Desc       string
 	Password   string
+	Mode       Mode
 	Current    Order
 	End        time.Time
 	PushTime   int64
@@ -53,6 +62,7 @@ func addHouse(c *gin.Context) {
 		Name:     requestBody.Name,
 		Desc:     requestBody.Desc,
 		Password: requestBody.Password,
+		Mode:     NormalMode,
 		Playlist: make([]Order, 0),
 		VoteSkip: make([]string, 0),
 
@@ -178,28 +188,15 @@ func (h *House) Broadcast(msg any) {
 }
 
 func (h *House) Update() {
-	var play Order
-
-	change := false
+	skip := false
 	h.lock(func() {
 		// no song to play
 		if h.Current.id == "" || h.End.Before(time.Now()) {
-			if len(h.Playlist) > 0 {
-				h.Current = h.Playlist[0]
-				h.Playlist = h.Playlist[1:]
-				play = h.Current
-				change = true
-			}
-		}
-
-		// still no song
-		if h.Current.id == "" {
-			return
+			skip = true
 		}
 	})
-	if change {
-		h.Push(play)
-		h.PushPlaylist()
+	if skip {
+		h.Skip()
 	}
 }
 
@@ -278,12 +275,22 @@ func (h *House) Skip() {
 	var play Order
 	change := false
 	h.lock(func() {
-		if len(h.Playlist) > 0 {
+		if len(h.Playlist) == 0 {
+			return
+		}
+		switch h.Mode {
+		case NormalMode:
 			h.Current = h.Playlist[0]
 			h.Playlist = h.Playlist[1:]
-			play = h.Current
-			change = true
+		case RandomMode:
+			choose := rand.IntN(len(h.Playlist))
+			h.Current = h.Playlist[choose]
+			h.Playlist = append(h.Playlist[:choose], h.Playlist[choose+1:]...)
+		default:
+			// nothing
 		}
+		play = h.Current
+		change = true
 	})
 	if change {
 		h.Push(play)
