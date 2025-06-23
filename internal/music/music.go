@@ -28,6 +28,7 @@ type Music struct {
 	Album     Album     `json:"album"`
 	Duration  int64     `json:"duration"`
 	Privilege Privilege `json:"privilege"`
+	Cover     string    `json:"cover"`
 	Source    Source    `json:"source"` // qq/163/kuwo
 }
 

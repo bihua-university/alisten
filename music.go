@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/wdvxdr1123/alisten/internal/music"
+	"github.com/wdvxdr1123/alisten/internal/music/bilibili"
 )
 
 type Order struct {
@@ -45,7 +46,7 @@ func deleteMusic(c *Context) {
 	deleted := false
 	c.WithHouse(func(h *House) {
 		for i, o := range h.Playlist {
-			m, _ := music.GetMusic(o.source, o.id)["name"].(string)
+			m, _ := music.GetMusic(o.source, o.id, true)["name"].(string)
 			if m == name {
 				deleted = true
 				h.Playlist = append(h.Playlist[:i], h.Playlist[i+1:]...)
@@ -66,18 +67,27 @@ func pickMusic(c *Context) {
 	source := c.Get("source").String()
 	// 聊天点歌只有名字， 没有
 	if id == "" {
-		r := music.SearchMusic(music.SearchOption{
-			Source:   source,
-			Keyword:  c.Get("name").String(),
-			Page:     1,
-			PageSize: 10,
-		})
-		if len(r.Data) > 0 {
-			id = r.Data[0].ID
+		if strings.HasPrefix(name, "BV") {
+			db := music.GetMusic("db", name, true)
+			if db["id"] != name {
+				bilibili.Upload(name)
+			}
+			source = "db"
+			id = name
+		} else {
+			r := music.SearchMusic(music.SearchOption{
+				Source:   source,
+				Keyword:  c.Get("name").String(),
+				Page:     1,
+				PageSize: 10,
+			})
+			if len(r.Data) > 0 {
+				id = r.Data[0].ID
+			}
 		}
 	}
 
-	m := music.GetMusic(source, id)
+	m := music.GetMusic(source, id, true)
 	if m["url"] == nil || m["url"] == "" {
 		// 点歌失败
 		return

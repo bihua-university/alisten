@@ -57,11 +57,16 @@ func addHouse(c *gin.Context) {
 		return
 	}
 
-	houseId := uuid.New().String()
+	houseID := uuid.New().String()
+	createHouse(houseID, requestBody.Name, requestBody.Desc, requestBody.Password)
+	c.JSON(http.StatusOK, gin.H{"code": "20000", "message": "房间创建成功", "data": houseID})
+}
+
+func createHouse(houseID string, name, desc, password string) {
 	house := &House{
-		Name:     requestBody.Name,
-		Desc:     requestBody.Desc,
-		Password: requestBody.Password,
+		Name:     name,
+		Desc:     desc,
+		Password: password,
 		Mode:     NormalMode,
 		Playlist: make([]Order, 0),
 		VoteSkip: make([]string, 0),
@@ -70,11 +75,10 @@ func addHouse(c *gin.Context) {
 		close: make(chan struct{}),
 	}
 	housesMu.Lock()
-	houses[houseId] = house
+	houses[houseID] = house
 	housesMu.Unlock()
 
 	house.Start()
-	c.JSON(http.StatusOK, gin.H{"code": "20000", "message": "房间创建成功", "data": houseId})
 }
 
 func GetHouse(id string) *House {
@@ -201,7 +205,7 @@ func (h *House) Update() {
 }
 
 func (h *House) Push(o Order) {
-	m := music.GetMusic(o.source, o.id)
+	m := music.GetMusic(o.source, o.id, false)
 	duration, ok := m["duration"].(int64)
 	if !ok {
 		return
@@ -213,7 +217,7 @@ func (h *House) Push(o Order) {
 		h.PushTime = now.Add(200 * time.Millisecond).UnixMilli() // 200ms delay
 		h.End = now.Add(time.Duration(duration) * time.Millisecond)
 		r = merge(m, gin.H{
-			"pushTime": h.PushTime, // delay 500ms
+			"pushTime": h.PushTime,
 		})
 	})
 
@@ -225,7 +229,7 @@ func (h *House) enter(c *Connection) {
 	h.lock(func() {
 		if h.Current.id != "" {
 			// 发送播放单曲
-			m := music.GetMusic(h.Current.source, h.Current.id)
+			m := music.GetMusic(h.Current.source, h.Current.id, false)
 			r := merge(m, gin.H{
 				"pushTime": h.PushTime,
 			})
@@ -242,14 +246,22 @@ func (h *House) enter(c *Connection) {
 
 func (h *House) playlist() []gin.H {
 	var list []gin.H
+
+	// playlist don't need this information
 	push := func(o Order) {
 		if o.id == "" {
 			return
 		}
-		m := music.GetMusic(o.source, o.id)
-		list = append(list, merge(m, gin.H{
-			"nickName": o.user,
-		}))
+		m := music.GetMusic(o.source, o.id, true)
+		keep := []string{"type", "source", "artist", "duration", "name", "album", "pictureUrl"}
+		r := make(gin.H, len(keep)+1)
+		for _, k := range keep {
+			if v, ok := m[k]; ok {
+				r[k] = v
+			}
+		}
+		r["nickName"] = o.user
+		list = append(list, r)
 	}
 
 	push(h.Current)

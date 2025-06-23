@@ -89,6 +89,7 @@ func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 			return true
 		})
 
+		picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", item.Get("albummid").String())
 		m := &Music{
 			ID:       item.Get("songmid").String(),
 			Name:     item.Get("songname").String(),
@@ -99,6 +100,7 @@ func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 				St: 1,
 				Fl: 1,
 			},
+			Cover: picture,
 		}
 		res = append(res, m)
 		return true
@@ -107,10 +109,6 @@ func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 }
 
 func getQQMusic(id string) gin.H {
-	if g, ok := qq.Get(id); ok {
-		return g
-	}
-
 	detail := QQGet("/song", url.Values{
 		"songmid": []string{id},
 	}).Get("data.track_info")
@@ -160,7 +158,6 @@ func getQQMusic(id string) gin.H {
 		},
 	}
 
-	qq.Add(id, h)
 	return h
 }
 

@@ -6,9 +6,11 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
 	"github.com/wdvxdr1123/alisten/internal/base"
+	"github.com/wdvxdr1123/alisten/internal/music/bihua"
 	"github.com/wdvxdr1123/alisten/internal/syncx"
 
 	"github.com/gin-gonic/gin"
@@ -19,27 +21,26 @@ import (
 //go:embed dist
 var fronted embed.FS
 
-const Debug = true
-
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 } // use default options
 
 func main() {
 	base.InitConfig()
+	bihua.InitDB()
 
 	gin.SetMode(gin.ReleaseMode)
+	if base.Config.Debug {
+		gin.SetMode(gin.DebugMode)
+	}
 	// 房间相关路由
 	g := gin.Default()
 	g.Use(Cors())
-	g.Any("/house/add", addHouse)
-	g.Any("/house/enter", enterHouse)
-	g.Any("/house/search", searchHouses)
+	g.Any("house/add", addHouse)
+	g.Any("house/enter", enterHouse)
+	g.Any("house/search", searchHouses)
 
-	f, _ := fs.Sub(fronted, "dist")
-	g.StaticFS("/listen", http.FS(f))
-
-	g.Any("/server", func(c *gin.Context) {
+	g.Any("server", func(c *gin.Context) {
 		w, r := c.Writer, c.Request
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
@@ -97,10 +98,17 @@ func main() {
 
 			// async handle command
 			go func() {
+				defer func() {
+					// prevent crash
+					if err := recover(); err != nil {
+						log.Println(err, "\n", string(debug.Stack()))
+					}
+				}()
+
 				msg := gjson.ParseBytes(message)
 				handler := route[msg.Get("action").String()]
 
-				if Debug {
+				if base.Config.Debug {
 					fmt.Println("cmd:", msg.Get("action").String(), "data:", msg.Get("data").String())
 				}
 
@@ -118,7 +126,19 @@ func main() {
 		}
 	})
 
-	log.Fatal(http.ListenAndServe(base.Config.Addr, g))
+	f, _ := fs.Sub(fronted, "dist")
+	g.NoRoute(func(c *gin.Context) {
+		c.FileFromFS(c.Request.URL.Path, http.FS(f))
+	})
+
+	// pin bhu house
+	createHouse("733dbb38-31d0-419c-9019-5c12777246c8", "BHU 听歌房", "BHU 听歌房", "")
+
+	if base.Config.Debug {
+		log.Fatal(http.ListenAndServe(":8080", g))
+	} else {
+		log.Fatal(http.ListenAndServeTLS(":443", "certificate.crt", "private.key", g))
+	}
 }
 
 var route = map[string]func(ctx *Context){

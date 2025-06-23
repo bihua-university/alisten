@@ -1,9 +1,12 @@
 package music
 
 import (
+	"fmt"
 	"net/url"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/wdvxdr1123/alisten/internal/music/bihua"
 )
 
 func SearchMusic(o SearchOption) SearchResult[Music] {
@@ -19,6 +22,33 @@ func SearchMusic(o SearchOption) SearchResult[Music] {
 			"key": []string{o.Keyword},
 		})
 		return GetQQMusicResult(r.Get("data.list"), o)
+	case "db":
+		ms, i, err := bihua.SearchMusicByDB(o.Keyword, o.Page, o.PageSize)
+		if err != nil {
+			fmt.Println(err)
+			return SearchResult[Music]{}
+		}
+		var data []*Music
+		for _, m := range ms {
+			data = append(data, &Music{
+				ID:     m.MusicID,
+				Name:   m.Name,
+				Artist: m.Artist,
+				Album: Album{
+					Name: m.AlbumName,
+				},
+				Duration: m.Duration,
+				Privilege: Privilege{
+					St: 1,
+					Fl: 1,
+				},
+				Source: NeteaseSong,
+			})
+		}
+		return SearchResult[Music]{
+			Total: i,
+			Data:  data,
+		}
 	}
 	return SearchResult[Music]{}
 }

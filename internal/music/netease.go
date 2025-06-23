@@ -50,16 +50,6 @@ func NeteasePost(u string, k gin.H) gjson.Result {
 	return WyPostTimestamp(u, k, true)
 }
 
-func GetMusic(source, id string) gin.H {
-	switch source {
-	case "wy":
-		return getNeteaseMusic(id)
-	case "qq":
-		return getQQMusic(id)
-	}
-	return gin.H{}
-}
-
 const (
 	NeteaseSong     = 1
 	NeteaseAlbum    = 10
@@ -107,6 +97,7 @@ func GetNeteaseMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 				St: 1,
 				Fl: 1,
 			},
+			Cover: item.Get("al.picUrl").String(),
 		}
 		res = append(res, m)
 		return true
@@ -145,14 +136,20 @@ func SearchNeteasePlaylist(o SearchOption) SearchResult[Playlist] {
 }
 
 func getNeteaseMusic(id string) gin.H {
-	if g, ok := netease.Get(id); ok {
-		return g
+	// 从试听链接中下载
+	try := NeteasePost("/song/url/v1", gin.H{
+		"level": "exhigh", // 320kps
+		"id":    id,
+	})
+	url := try.Get("data.0.url").String()
+	if url == "" {
+		download := NeteasePost("/song/download/url/v1", gin.H{
+			"level": "exhigh", // 320kps
+			"id":    id,
+		})
+		url = download.Get("data.url").String()
 	}
 
-	download := NeteasePost("/song/download/url", gin.H{
-		"br": 320000, // 320kps
-		"id": id,
-	})
 	detail := NeteasePost("/song/detail", gin.H{
 		"ids": id,
 	}).Get("songs.0")
@@ -171,7 +168,7 @@ func getNeteaseMusic(id string) gin.H {
 
 	h := gin.H{
 		"type":       "music",
-		"url":        download.Get("data.url").String(),
+		"url":        url,
 		"pictureUrl": detail.Get("al.picUrl").String(),
 		"duration":   detail.Get("dt").Int(),
 		"source":     "netease",
@@ -181,8 +178,8 @@ func getNeteaseMusic(id string) gin.H {
 		"album": gin.H{
 			"name": detail.Get("al.name").String(),
 		},
+		"id": id,
 	}
-	netease.Add(id, h)
 
 	return h
 }
