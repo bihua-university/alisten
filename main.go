@@ -1,9 +1,7 @@
 package main
 
 import (
-	"embed"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -17,9 +15,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
 )
-
-//go:embed dist
-var fronted embed.FS
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -124,11 +119,6 @@ func main() {
 				}
 			}()
 		}
-	})
-
-	f, _ := fs.Sub(fronted, "dist")
-	g.NoRoute(func(c *gin.Context) {
-		c.FileFromFS(c.Request.URL.Path, http.FS(f))
 	})
 
 	// pin bhu house
