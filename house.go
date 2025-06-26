@@ -226,6 +226,7 @@ func (h *House) Push(o Order) {
 
 func (h *House) enter(c *Connection) {
 	var list []gin.H
+	var u []string
 	h.lock(func() {
 		if h.Current.id != "" {
 			// 发送播放单曲
@@ -236,11 +237,18 @@ func (h *House) enter(c *Connection) {
 			c.Send(r)
 		}
 		list = h.playlist()
+		for _, conn := range h.Connection {
+			u = append(u, conn.user)
+		}
 	})
 	// 推送播放列表
 	c.Send(gin.H{
 		"type": "pick",
 		"data": list,
+	})
+	h.Broadcast(gin.H{
+		"type": "house_user",
+		"data": u,
 	})
 }
 
