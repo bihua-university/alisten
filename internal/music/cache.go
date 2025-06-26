@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/wdvxdr1123/alisten/internal/music/bihua"
+	"github.com/bihua-university/alisten/internal/music/bihua"
 )
 
 var cache = expirable.NewLRU[string, gin.H](32, nil, 30*time.Minute)

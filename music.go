@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/wdvxdr1123/alisten/internal/music"
-	"github.com/wdvxdr1123/alisten/internal/music/bilibili"
+	"github.com/bihua-university/alisten/internal/music"
+	"github.com/bihua-university/alisten/internal/music/bilibili"
 )
 
 type Order struct {

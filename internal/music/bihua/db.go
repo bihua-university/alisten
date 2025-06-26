@@ -3,8 +3,8 @@ package bihua
 import (
 	"log"
 
+	"github.com/bihua-university/alisten/internal/base"
 	"github.com/gin-gonic/gin"
-	"github.com/wdvxdr1123/alisten/internal/base"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

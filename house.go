@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wdvxdr1123/alisten/internal/music"
-	"github.com/wdvxdr1123/alisten/internal/syncx"
+	"github.com/bihua-university/alisten/internal/music"
+	"github.com/bihua-university/alisten/internal/syncx"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

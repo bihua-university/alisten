@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 
-	"github.com/wdvxdr1123/alisten/internal/base"
-	"github.com/wdvxdr1123/alisten/internal/music/kuwo"
+	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/music/kuwo"
 )
 
 var kuwoClient = kuwo.NewClient()

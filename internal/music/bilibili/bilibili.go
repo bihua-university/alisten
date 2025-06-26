@@ -16,8 +16,8 @@ import (
 	"github.com/qiniu/go-sdk/v7/storagev2/http_client"
 	"github.com/qiniu/go-sdk/v7/storagev2/uploader"
 
-	"github.com/wdvxdr1123/alisten/internal/base"
-	"github.com/wdvxdr1123/alisten/internal/music/bihua"
+	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/music/bihua"
 )
 
 type ctxt struct {

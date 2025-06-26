@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/wdvxdr1123/alisten/internal/music/bihua"
+	"github.com/bihua-university/alisten/internal/music/bihua"
 )
 
 func SearchMusic(o SearchOption) SearchResult[Music] {

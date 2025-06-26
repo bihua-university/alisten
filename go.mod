@@ -1,4 +1,4 @@
-module github.com/wdvxdr1123/alisten
+module github.com/bihua-university/alisten
 
 go 1.23.0
 

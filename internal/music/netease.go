@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 
-	"github.com/wdvxdr1123/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/base"
 )
 
 func WyPostTimestamp(u string, k gin.H, timestamp bool) gjson.Result {

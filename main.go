@@ -7,9 +7,9 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/wdvxdr1123/alisten/internal/base"
-	"github.com/wdvxdr1123/alisten/internal/music/bihua"
-	"github.com/wdvxdr1123/alisten/internal/syncx"
+	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/music/bihua"
+	"github.com/bihua-university/alisten/internal/syncx"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"

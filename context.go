@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/wdvxdr1123/alisten/internal/syncx"
+	"github.com/bihua-university/alisten/internal/syncx"
 
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
