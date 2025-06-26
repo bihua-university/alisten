@@ -26,6 +26,7 @@ func (c *Context) Chat(msg string) {
 	}
 	c.house.Broadcast(h)
 }
+
 func setName(c *Context) {
 	c.conn.mu.Lock()
 	defer c.conn.mu.Unlock()

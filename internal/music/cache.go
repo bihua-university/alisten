@@ -9,20 +9,7 @@ import (
 	"github.com/bihua-university/alisten/internal/music/bihua"
 )
 
-var cache = expirable.NewLRU[string, gin.H](32, nil, 30*time.Minute)
-
-/*
-   gin.H{
-        "type":       "music",
-        "url":        r.Get("data.url").String(),
-        "pictureUrl": r2.Get("songs.0.al.picUrl").String(),
-        "duration":   r2.Get("songs.0.dt").Int(),
-        "source":     "netease",
-        "lyric":      lyric.Get("lrc.lyric").String(),
-        "pushTime":   time.Now().UnixMilli(),
-        "name":       m.Name,
-    }
-*/
+var cache = expirable.NewLRU[string, gin.H](256, nil, 30*time.Minute)
 
 func GetMusic(source, id string, useCache bool) gin.H {
 	key := source + "OvO" + id

@@ -106,10 +106,10 @@ func GetNeteaseMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 }
 
 func SearchNeteasePlaylist(o SearchOption) SearchResult[Playlist] {
-	r := NeteasePost("/cloudsearch", gin.H{
+	r := WyPostTimestamp("/cloudsearch?keywords="+o.Keyword, gin.H{
 		"keywords": o.Keyword,
 		"type":     NeteasePlaylist,
-	})
+	}, false)
 
 	var total int64
 	var res []*Playlist

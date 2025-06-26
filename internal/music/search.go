@@ -12,10 +12,10 @@ import (
 func SearchMusic(o SearchOption) SearchResult[Music] {
 	switch o.Source {
 	case "wy":
-		r := NeteasePost("/cloudsearch", gin.H{
+		r := WyPostTimestamp("/cloudsearch?keywords="+o.Keyword, gin.H{
 			"keywords": o.Keyword,
 			"type":     NeteaseSong,
-		})
+		}, false)
 		return GetNeteaseMusicResult(r.Get("result.songs"), o)
 	case "qq":
 		r := QQGet("/search", url.Values{
@@ -68,9 +68,9 @@ func SearchPlaylist(o SearchOption) SearchResult[Playlist] {
 func GetSongList(o SearchOption) SearchResult[Music] {
 	switch o.Source {
 	case "wy":
-		r := NeteasePost("/playlist/track/all", gin.H{
+		r := WyPostTimestamp("/playlist/track/all?id="+o.ID, gin.H{
 			"id": o.ID,
-		})
+		}, false)
 		return GetNeteaseMusicResult(r.Get("songs"), o)
 	case "qq":
 		r := QQGet("/songlist", url.Values{
