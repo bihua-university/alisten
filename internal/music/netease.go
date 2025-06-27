@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,19 +16,20 @@ import (
 	"github.com/bihua-university/alisten/internal/base"
 )
 
-func WyPostTimestamp(u string, k gin.H, timestamp bool) gjson.Result {
+func NeteasePost(u string, k gin.H, key string) gjson.Result {
 	k["cookie"] = base.Config.Cookie
 	marshal, err := json.Marshal(k)
 	if err != nil {
 		return gjson.Result{}
 	}
 
-	var dest string
-	if timestamp {
-		dest = fmt.Sprintf("%s%s?timestamp=%d", base.Config.NeteaseAPI, u, time.Now().UnixMilli())
+	dest := base.Config.NeteaseAPI + u
+	if key != "" {
+		dest += fmt.Sprintf("?%s=%s", key, url.QueryEscape(fmt.Sprint(k[key])))
 	} else {
-		dest = base.Config.NeteaseAPI + u
+		dest += "?timestamp=" + strconv.FormatInt(time.Now().UnixMilli(), 10)
 	}
+
 	req, err := http.NewRequest("POST", dest, bytes.NewReader(marshal))
 	if err != nil {
 		return gjson.Result{}
@@ -44,10 +47,6 @@ func WyPostTimestamp(u string, k gin.H, timestamp bool) gjson.Result {
 	}
 
 	return gjson.ParseBytes(all)
-}
-
-func NeteasePost(u string, k gin.H) gjson.Result {
-	return WyPostTimestamp(u, k, true)
 }
 
 const (
@@ -106,10 +105,10 @@ func GetNeteaseMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 }
 
 func SearchNeteasePlaylist(o SearchOption) SearchResult[Playlist] {
-	r := WyPostTimestamp("/cloudsearch?keywords="+o.Keyword, gin.H{
+	r := NeteasePost("/cloudsearch", gin.H{
 		"keywords": o.Keyword,
 		"type":     NeteasePlaylist,
-	}, false)
+	}, "keywords")
 
 	var total int64
 	var res []*Playlist
@@ -140,22 +139,22 @@ func getNeteaseMusic(id string) gin.H {
 	try := NeteasePost("/song/url/v1", gin.H{
 		"level": "exhigh", // 320kps
 		"id":    id,
-	})
+	}, "id")
 	url := try.Get("data.0.url").String()
 	if url == "" {
 		download := NeteasePost("/song/download/url/v1", gin.H{
 			"level": "exhigh", // 320kps
 			"id":    id,
-		})
+		}, "id")
 		url = download.Get("data.url").String()
 	}
 
 	detail := NeteasePost("/song/detail", gin.H{
 		"ids": id,
-	}).Get("songs.0")
+	}, "id").Get("songs.0")
 	lyric := NeteasePost("/lyric", gin.H{
 		"id": id,
-	})
+	}, "id")
 
 	artist := ""
 	detail.Get("ar").ForEach(func(_, value gjson.Result) bool {

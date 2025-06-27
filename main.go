@@ -122,7 +122,7 @@ func main() {
 	})
 
 	// pin bhu house
-	createHouse("733dbb38-31d0-419c-9019-5c12777246c8", "BHU 听歌房", "BHU 听歌房", "")
+	createHouse("733dbb38-31d0-419c-9019-5c12777246c8", "BHU 听歌房", "BHU 听歌房", "bhubhu")
 
 	if base.Config.Debug {
 		log.Fatal(http.ListenAndServe(":8080", g))
