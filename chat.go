@@ -36,4 +36,16 @@ func setName(c *Context) {
 		"type":  "delay",
 		"delay": delay,
 	})
+
+	// 推送更新后的用户列表
+	var u []string
+	c.WithHouse(func(h *House) {
+		for _, conn := range h.Connection {
+			u = append(u, conn.user)
+		}
+	})
+	c.house.Broadcast(gin.H{
+		"type": "house_user",
+		"data": u,
+	})
 }
