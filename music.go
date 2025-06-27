@@ -206,3 +206,16 @@ func playMode(c *Context) {
 		}
 	})
 }
+
+func getCurrentMusic(c *Context) {
+	c.WithHouse(func(h *House) {
+		if h.Current.id != "" {
+			// 发送播放单曲
+			m := music.GetMusic(h.Current.source, h.Current.id, false)
+			r := merge(m, gin.H{
+				"pushTime": h.PushTime,
+			})
+			c.conn.Send(r)
+		}
+	})
+}
