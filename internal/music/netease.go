@@ -151,7 +151,7 @@ func getNeteaseMusic(id string) gin.H {
 
 	detail := NeteasePost("/song/detail", gin.H{
 		"ids": id,
-	}, "id").Get("songs.0")
+	}, "ids").Get("songs.0")
 	lyric := NeteasePost("/lyric", gin.H{
 		"id": id,
 	}, "id")
