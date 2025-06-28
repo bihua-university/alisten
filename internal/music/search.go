@@ -57,6 +57,8 @@ func SearchPlaylist(o SearchOption) SearchResult[Playlist] {
 	switch o.Source {
 	case "wy":
 		return SearchNeteasePlaylist(o)
+	case "wy_user":
+		return SearchNeteaseUserPlaylist(o)
 	case "qq":
 		return SearchQQPlaylist(o)
 	case "qq_user":

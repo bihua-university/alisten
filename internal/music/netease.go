@@ -134,6 +134,34 @@ func SearchNeteasePlaylist(o SearchOption) SearchResult[Playlist] {
 	return SearchResult[Playlist]{Total: total, Data: res}
 }
 
+func SearchNeteaseUserPlaylist(o SearchOption) SearchResult[Playlist] {
+	list := NeteasePost("/user/playlist", gin.H{
+		"uid": o.Keyword,
+	}, "uid")
+
+	var total int64
+	var res []*Playlist
+	list.Get("playlist").ForEach(func(_, item gjson.Result) bool {
+		total++
+		if total < (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
+			return true
+		}
+		m := &Playlist{
+			ID:         item.Get("id").String(),
+			Name:       item.Get("name").String(),
+			PictureURL: item.Get("coverImgUrl").String(),
+			Desc:       item.Get("description").String(),
+			Creator:    item.Get("creator.nickname").String(),
+			CreatorUid: item.Get("creator.userId").String(),
+			PlayCount:  item.Get("playCount").Int(),
+			SongCount:  item.Get("trackCount").Int(),
+		}
+		res = append(res, m)
+		return true
+	})
+	return SearchResult[Playlist]{Total: total, Data: res}
+}
+
 func getNeteaseMusic(id string) gin.H {
 	// 从试听链接中下载
 	try := NeteasePost("/song/url/v1", gin.H{
