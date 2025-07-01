@@ -318,6 +318,28 @@ func (h *House) Skip() {
 	}
 }
 
+func (h *House) leave(c *Connection) {
+	var u []string
+	h.lock(func() {
+		// 移除连接
+		for i, conn := range h.Connection {
+			if conn.conn == c.conn {
+				h.Connection = append(h.Connection[:i], h.Connection[i+1:]...)
+				break
+			}
+		}
+		// 获取更新后的用户列表
+		for _, conn := range h.Connection {
+			u = append(u, conn.user)
+		}
+	})
+	// 广播更新后的用户列表
+	h.Broadcast(gin.H{
+		"type": "house_user",
+		"data": u,
+	})
+}
+
 func houseuser(c *Context) {
 	var u []string
 	c.WithHouse(func(h *House) {
