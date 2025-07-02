@@ -81,7 +81,7 @@ func main() {
 			if err != nil {
 				log.Println("read:", err)
 				// remove from connections and broadcast updated user list
-				house.leave(conn)
+				house.Leave(conn)
 				break
 			}
 

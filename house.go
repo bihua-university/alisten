@@ -318,7 +318,7 @@ func (h *House) Skip() {
 	}
 }
 
-func (h *House) leave(c *Connection) {
+func (h *House) Leave(c *Connection) {
 	var u []string
 	h.lock(func() {
 		// 移除连接
