@@ -80,14 +80,8 @@ func main() {
 			_, message, err := wc.ReadMessage()
 			if err != nil {
 				log.Println("read:", err)
-				// remove from connections
-				house.lock(func() {
-					for i, conn := range house.Connection {
-						if conn.conn == wc {
-							house.Connection = append(house.Connection[:i], house.Connection[i+1:]...)
-						}
-					}
-				})
+				// remove from connections and broadcast updated user list
+				house.Leave(conn)
 				break
 			}
 
