@@ -261,7 +261,7 @@ func (h *House) playlist() []gin.H {
 			return
 		}
 		m := music.GetMusic(o.source, o.id, true)
-		keep := []string{"type", "source", "artist", "duration", "name", "album", "pictureUrl"}
+		keep := []string{"type", "source", "artist", "duration", "name", "album", "pictureUrl", "webUrl"}
 		r := make(gin.H, len(keep)+1)
 		for _, k := range keep {
 			if v, ok := m[k]; ok {

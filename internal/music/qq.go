@@ -146,15 +146,17 @@ func getQQMusic(id string) gin.H {
 	h := gin.H{
 		"type":       "music",
 		"url":        download.Get("data.url").String(),
+		"webUrl":     fmt.Sprintf("https://y.qq.com/n/yqq/song/%s.html", id),
 		"pictureUrl": picture,
 		"duration":   download.Get("data.duration").Int() * 1000,
-		"source":     "netease",
+		"source":     "qq",
 		"lyric":      lyric.Get("data.lyric").String(),
 		"artist":     artist,
 		"name":       name,
 		"album": gin.H{
 			"name": detail.Get("album.name").String(),
 		},
+		"id": id,
 	}
 
 	return h

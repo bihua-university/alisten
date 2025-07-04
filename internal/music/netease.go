@@ -196,6 +196,7 @@ func getNeteaseMusic(id string) gin.H {
 	h := gin.H{
 		"type":       "music",
 		"url":        url,
+		"webUrl":     fmt.Sprintf("https://music.163.com/#/song?id=%s", id),
 		"pictureUrl": detail.Get("al.picUrl").String(),
 		"duration":   detail.Get("dt").Int(),
 		"source":     "netease",
