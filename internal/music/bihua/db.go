@@ -39,6 +39,7 @@ func SaveNeteaseMusic(music gin.H) error {
 		Artist:     music["artist"].(string),
 		AlbumName:  music["album"].(gin.H)["name"].(string),
 		PictureURL: music["pictureUrl"].(string),
+		WebURL:     music["webUrl"].(string),
 		Duration:   music["duration"].(int64),
 		URL:        music["url"].(string),
 		Lyric:      music["lyric"].(string),
@@ -51,6 +52,7 @@ func SaveNeteaseMusic(music gin.H) error {
 	if result.Error == nil {
 		// Music exists, update the record
 		existingMusic.URL = musicModel.URL // Update URL as it might have changed
+		existingMusic.WebURL = musicModel.WebURL
 		existingMusic.PictureURL = musicModel.PictureURL
 		existingMusic.Lyric = musicModel.Lyric
 		return DB.Save(&existingMusic).Error
@@ -76,6 +78,7 @@ func InsertMusic(music *MusicModel) error {
 	if result.Error == nil {
 		// Music exists, update the record
 		existingMusic.URL = music.URL
+		existingMusic.WebURL = music.WebURL
 		existingMusic.PictureURL = music.PictureURL
 		existingMusic.Lyric = music.Lyric
 		existingMusic.Name = music.Name
@@ -142,6 +145,7 @@ func ConvertToGinH(music *MusicModel) gin.H {
 		"type":       "music",
 		"id":         music.MusicID,
 		"url":        music.URL,
+		"webUrl":     music.WebURL,
 		"pictureUrl": music.PictureURL,
 		"duration":   music.Duration,
 		"lyric":      music.Lyric,
