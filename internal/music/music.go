@@ -1,5 +1,22 @@
 package music
 
+import "fmt"
+
+// GenerateWebURL generates the web URL for a music track based on source and ID
+func GenerateWebURL(source, id string) string {
+	switch source {
+	case "wy", "netease":
+		return fmt.Sprintf("https://music.163.com/#/song?id=%s", id)
+	case "qq":
+		return fmt.Sprintf("https://y.qq.com/n/yqq/song/%s.html", id)
+	case "db":
+		// For Bilibili videos (stored in db), the ID is typically a BV ID
+		return fmt.Sprintf("https://www.bilibili.com/video/%s", id)
+	default:
+		return ""
+	}
+}
+
 type Source int
 
 const (

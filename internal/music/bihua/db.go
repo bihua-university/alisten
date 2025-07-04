@@ -1,6 +1,7 @@
 package bihua
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/bihua-university/alisten/internal/base"
@@ -39,7 +40,6 @@ func SaveNeteaseMusic(music gin.H) error {
 		Artist:     music["artist"].(string),
 		AlbumName:  music["album"].(gin.H)["name"].(string),
 		PictureURL: music["pictureUrl"].(string),
-		WebURL:     music["webUrl"].(string),
 		Duration:   music["duration"].(int64),
 		URL:        music["url"].(string),
 		Lyric:      music["lyric"].(string),
@@ -52,7 +52,6 @@ func SaveNeteaseMusic(music gin.H) error {
 	if result.Error == nil {
 		// Music exists, update the record
 		existingMusic.URL = musicModel.URL // Update URL as it might have changed
-		existingMusic.WebURL = musicModel.WebURL
 		existingMusic.PictureURL = musicModel.PictureURL
 		existingMusic.Lyric = musicModel.Lyric
 		return DB.Save(&existingMusic).Error
@@ -78,7 +77,6 @@ func InsertMusic(music *MusicModel) error {
 	if result.Error == nil {
 		// Music exists, update the record
 		existingMusic.URL = music.URL
-		existingMusic.WebURL = music.WebURL
 		existingMusic.PictureURL = music.PictureURL
 		existingMusic.Lyric = music.Lyric
 		existingMusic.Name = music.Name
@@ -141,11 +139,21 @@ func SearchMusicByDB(keyword string, page, pageSize int64) ([]MusicModel, int64,
 
 // ConvertToGinH converts a MusicModel to the gin.H format used by the API
 func ConvertToGinH(music *MusicModel) gin.H {
+	// 需要从外部导入 GenerateWebURL 函数
+	webUrl := ""
+	switch {
+	case len(music.MusicID) > 0:
+		// 动态生成 WebURL
+		if music.MusicID[:2] == "BV" {
+			webUrl = fmt.Sprintf("https://www.bilibili.com/video/%s", music.MusicID)
+		}
+	}
+
 	return gin.H{
 		"type":       "music",
 		"id":         music.MusicID,
 		"url":        music.URL,
-		"webUrl":     music.WebURL,
+		"webUrl":     webUrl,
 		"pictureUrl": music.PictureURL,
 		"duration":   music.Duration,
 		"lyric":      music.Lyric,
