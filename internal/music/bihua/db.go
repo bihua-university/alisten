@@ -142,7 +142,7 @@ func ConvertToGinH(music *MusicModel) gin.H {
 	// 需要从外部导入 GenerateWebURL 函数
 	webUrl := ""
 	switch {
-	case len(music.MusicID) > 0:
+	case len(music.MusicID) >= 2:
 		// 动态生成 WebURL
 		if music.MusicID[:2] == "BV" {
 			webUrl = fmt.Sprintf("https://www.bilibili.com/video/%s", music.MusicID)
