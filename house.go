@@ -34,8 +34,10 @@ type House struct {
 	Connection []*Connection
 
 	// private
-	queue syncx.UnboundedChan[[]byte]
-	close chan struct{}
+	persist        bool
+	lastActiveTime time.Time
+	queue          syncx.UnboundedChan[[]byte]
+	close          chan struct{}
 }
 
 var housesMu sync.Mutex
@@ -43,12 +45,10 @@ var houses = make(map[string]*House)
 
 func addHouse(c *gin.Context) {
 	var requestBody struct {
-		Name         string `json:"name"`
-		Desc         string `json:"desc"`
-		NeedPwd      bool   `json:"needPwd"`
-		Password     string `json:"password"`
-		EnableStatus bool   `json:"enableStatus"`
-		RetainKey    string `json:"retainKey"`
+		Name     string `json:"name"`
+		Desc     string `json:"desc"`
+		NeedPwd  bool   `json:"needPwd"`
+		Password string `json:"password"`
 	}
 
 	err := c.ShouldBindBodyWithJSON(&requestBody)
@@ -58,11 +58,11 @@ func addHouse(c *gin.Context) {
 	}
 
 	houseID := uuid.New().String()
-	createHouse(houseID, requestBody.Name, requestBody.Desc, requestBody.Password)
+	createHouse(houseID, requestBody.Name, requestBody.Desc, requestBody.Password, false)
 	c.JSON(http.StatusOK, gin.H{"code": "20000", "message": "房间创建成功", "data": houseID})
 }
 
-func createHouse(houseID string, name, desc, password string) {
+func createHouse(houseID string, name, desc, password string, persist bool) {
 	house := &House{
 		Name:     name,
 		Desc:     desc,
@@ -71,8 +71,10 @@ func createHouse(houseID string, name, desc, password string) {
 		Playlist: make([]Order, 0),
 		VoteSkip: make([]string, 0),
 
-		queue: syncx.NewUnboundedChan[[]byte](8),
-		close: make(chan struct{}),
+		persist:        persist,
+		lastActiveTime: time.Now(),
+		queue:          syncx.NewUnboundedChan[[]byte](8),
+		close:          make(chan struct{}),
 	}
 	housesMu.Lock()
 	houses[houseID] = house
@@ -132,33 +134,6 @@ func searchHouses(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": "20000", "message": "房间列表", "data": response})
 }
 
-/*
-{
-	"id": "FjOQWUKc",
-	"sessionId": null,
-	"name": "花样小学点歌",
-	"desc": "花样小学的都来",
-	"remoteAddress": null,
-	"createTime": 1639756889039,
-	"password": null,
-	"enableStatus": null,
-	"needPwd": true,
-	"population": 0,
-	"canDestroy": null,
-	"retainKey": null,
-	"announce": {
-		"sessionId": "afgi3tpv",
-		"content": "欢迎大家点歌",
-		"nickName": "白宇(111.121.*.*)",
-		"sendTime": 1643543706686,
-		"pushTime": 1643543706686
-	},
-	"forbiddenModiPwd": null,
-	"adminPwd": null
-}
-*/
-// house/search
-
 func (h *House) lock(fn func()) {
 	h.Mu.Lock()
 	defer h.Mu.Unlock()
@@ -193,12 +168,23 @@ func (h *House) Broadcast(msg any) {
 
 func (h *House) Update() {
 	skip := false
+	cleanup := false
 	h.lock(func() {
 		// no song to play
 		if h.Current.id == "" || h.End.Before(time.Now()) {
 			skip = true
 		}
+		// 检查是否需要清理房间
+		if len(h.Connection) == 0 && !h.persist && time.Since(h.lastActiveTime) > 5*time.Minute {
+			cleanup = true
+		}
 	})
+
+	if cleanup {
+		h.Close()
+		return
+	}
+
 	if skip {
 		h.Skip()
 	}
@@ -328,6 +314,10 @@ func (h *House) Leave(c *Connection) {
 				break
 			}
 		}
+		// 如果房间为空，更新最后活跃时间
+		if len(h.Connection) == 0 {
+			h.lastActiveTime = time.Now()
+		}
 		// 获取更新后的用户列表
 		for _, conn := range h.Connection {
 			u = append(u, conn.user)
@@ -351,4 +341,23 @@ func houseuser(c *Context) {
 		"type": "house_user",
 		"data": u,
 	})
+}
+
+// 关闭当前房间
+func (h *House) Close() {
+	// 查找当前房间的ID
+	var houseID string
+	housesMu.Lock()
+	for id, house := range houses {
+		if house == h {
+			houseID = id
+			break
+		}
+	}
+
+	if houseID != "" {
+		close(h.close)
+		delete(houses, houseID)
+	}
+	housesMu.Unlock()
 }

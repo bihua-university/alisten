@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music/bihua"
@@ -71,6 +72,7 @@ func main() {
 
 		house.Mu.Lock()
 		house.Connection = append(house.Connection, conn)
+		house.lastActiveTime = time.Now()
 		house.Mu.Unlock()
 
 		conn.Start()
@@ -117,7 +119,7 @@ func main() {
 
 	// 创建持久化房间
 	for _, house := range base.Config.Persist {
-		createHouse(house.ID, house.Name, house.Desc, house.Password)
+		createHouse(house.ID, house.Name, house.Desc, house.Password, true)
 	}
 
 	if base.Config.Debug {
