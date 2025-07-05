@@ -57,7 +57,6 @@ func Upload(bvId string) {
 		Artist:     c.owner,
 		AlbumName:  bvId,
 		PictureURL: photo,
-		WebURL:     fmt.Sprintf("https://www.bilibili.com/video/%s", bvId),
 		Duration:   int64(c.duration),
 		URL:        audio,
 		Lyric:      "",

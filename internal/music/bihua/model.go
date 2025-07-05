@@ -12,7 +12,6 @@ type MusicModel struct {
 	Artist     string `gorm:"index"`
 	AlbumName  string
 	PictureURL string
-	WebURL     string // 添加网址字段
 	Duration   int64
 	URL        string
 	Lyric      string `gorm:"type:text"`
