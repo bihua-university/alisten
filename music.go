@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -16,6 +17,129 @@ type Order struct {
 	id     string
 	user   string
 	likes  int
+}
+
+// PickMusicResult 点歌结果
+type PickMusicResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Name    string `json:"name,omitempty"`
+	Source  string `json:"source,omitempty"`
+	ID      string `json:"id,omitempty"`
+}
+
+// doPickMusic 核心点歌逻辑，被pickMusic和pickMusicHTTP共同使用
+func doPickMusic(house *House, id, name, source, user string) PickMusicResult {
+	// 聊天点歌只有名字，没有ID的情况
+	if id == "" {
+		if strings.HasPrefix(name, "BV") {
+			db := music.GetMusic("db", name, true)
+			if db["id"] != name {
+				bilibili.Upload(name)
+			}
+			source = "db"
+			id = name
+		} else {
+			r := music.SearchMusic(music.SearchOption{
+				Source:   source,
+				Keyword:  name,
+				Page:     1,
+				PageSize: 10,
+			})
+			if len(r.Data) > 0 {
+				id = r.Data[0].ID
+			}
+		}
+	}
+
+	m := music.GetMusic(source, id, true)
+	if m["url"] == nil || m["url"] == "" {
+		return PickMusicResult{
+			Success: false,
+			Message: "点歌失败，无法获取音乐信息",
+		}
+	}
+
+	same := false
+	house.Mu.Lock()
+	for _, o := range house.Playlist {
+		if o.id == id {
+			same = true
+			break
+		}
+	}
+	if !same {
+		house.Playlist = append(house.Playlist, Order{source: source, id: id, user: user})
+	}
+	house.Mu.Unlock()
+
+	if same {
+		return PickMusicResult{
+			Success: false,
+			Message: "重复点歌",
+		}
+	}
+
+	house.Update()
+	house.PushPlaylist()
+
+	// 获取实际的音乐名称
+	if actualName, ok := m["name"].(string); ok && actualName != "" {
+		name = actualName
+	}
+
+	return PickMusicResult{
+		Success: true,
+		Message: "点歌成功",
+		Name:    name,
+		Source:  source,
+		ID:      id,
+	}
+}
+
+// pickMusicHTTP 为HTTP请求提供点歌功能
+func pickMusicHTTP(c *gin.Context) {
+	var request struct {
+		HouseID  string `json:"houseId"`
+		Password string `json:"password"`
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Source   string `json:"source"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 验证房间存在性和密码
+	house := GetHouse(request.HouseID)
+	if house == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "房间不存在"})
+		return
+	}
+	if house.Password != request.Password {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "密码错误"})
+		return
+	}
+
+	// 调用核心点歌逻辑
+	result := doPickMusic(house, request.ID, request.Name, request.Source, "HTTP User")
+
+	if result.Success {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    "20000",
+			"message": result.Message,
+			"data": gin.H{
+				"name":   result.Name,
+				"source": result.Source,
+				"id":     result.ID,
+			},
+		})
+	} else {
+		statusCode := http.StatusBadRequest
+		c.JSON(statusCode, gin.H{"error": result.Message})
+	}
 }
 
 func searchMusic(c *Context) {
@@ -65,53 +189,15 @@ func pickMusic(c *Context) {
 	id := c.Get("id").String()
 	name := c.Get("name").String()
 	source := c.Get("source").String()
-	// 聊天点歌只有名字， 没有
-	if id == "" {
-		if strings.HasPrefix(name, "BV") {
-			db := music.GetMusic("db", name, true)
-			if db["id"] != name {
-				bilibili.Upload(name)
-			}
-			source = "db"
-			id = name
-		} else {
-			r := music.SearchMusic(music.SearchOption{
-				Source:   source,
-				Keyword:  c.Get("name").String(),
-				Page:     1,
-				PageSize: 10,
-			})
-			if len(r.Data) > 0 {
-				id = r.Data[0].ID
-			}
-		}
-	}
 
-	m := music.GetMusic(source, id, true)
-	if m["url"] == nil || m["url"] == "" {
-		// 点歌失败
-		return
-	}
+	// 调用核心点歌逻辑
+	result := doPickMusic(c.house, id, name, source, c.conn.user)
 
-	same := false
-	c.WithHouse(func(house *House) {
-		for _, o := range house.Playlist {
-			if o.id == id {
-				same = true
-			}
-		}
-		if same {
-			// 重复点歌
-			return
-		}
-		house.Playlist = append(house.Playlist, Order{source: source, id: id, user: c.conn.user})
-	})
-	c.house.Update()
-	if !same {
+	if result.Success {
 		// Push new playlist
-		c.house.PushPlaylist()
-		c.Chat("点歌 " + name)
+		c.Chat("点歌 " + result.Name)
 	}
+	// WebSocket版本不需要返回错误响应，静默失败即可
 }
 
 func merge(h1, h2 gin.H) gin.H {

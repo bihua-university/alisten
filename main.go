@@ -35,6 +35,7 @@ func main() {
 	g.Any("house/add", addHouse)
 	g.Any("house/enter", enterHouse)
 	g.Any("house/search", searchHouses)
+	g.POST("music/pick", pickMusicHTTP)
 
 	g.Any("server", func(c *gin.Context) {
 		w, r := c.Writer, c.Request
