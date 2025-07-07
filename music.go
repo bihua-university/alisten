@@ -53,7 +53,8 @@ func doPickMusic(house *House, id, name, source, user string) PickMusicResult {
 	}
 
 	m := music.GetMusic(source, id, true)
-	if m["url"] == nil || m["url"] == "" {
+	url, ok := m["url"].(string)
+	if !ok || url == "" {
 		return PickMusicResult{
 			Success: false,
 			Message: "点歌失败，无法获取音乐信息",
