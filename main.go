@@ -11,6 +11,7 @@ import (
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music/bihua"
 	"github.com/bihua-university/alisten/internal/syncx"
+	"github.com/bihua-university/alisten/internal/task"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -21,6 +22,8 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 } // use default options
 
+var scheduler *task.Server // manual initialize
+
 func main() {
 	base.InitConfig()
 	bihua.InitDB()
@@ -29,6 +32,9 @@ func main() {
 	if base.Config.Debug {
 		gin.SetMode(gin.DebugMode)
 	}
+
+	scheduler = task.NewServer(base.Config.Token) // 可以从配置文件读取token
+
 	// 房间相关路由
 	g := gin.Default()
 	g.Use(Cors())
@@ -36,6 +42,10 @@ func main() {
 	g.Any("house/enter", enterHouse)
 	g.Any("house/search", searchHouses)
 	g.POST("music/pick", pickMusicHTTP)
+
+	// task long-polling
+	g.GET("tasks/poll", gin.WrapF(scheduler.PollTaskHandler))
+	g.POST("tasks/result", gin.WrapF(scheduler.SubmitResultHandler))
 
 	g.Any("server", func(c *gin.Context) {
 		w, r := c.Writer, c.Request

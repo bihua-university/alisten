@@ -9,11 +9,10 @@ import (
 
 var Config struct {
 	Addr       string         `config:"addr"`
+	Token      string         `config:"token"`
 	Cookie     string         `config:"music.cookie"`
 	NeteaseAPI string         `config:"music.netease"`
 	QQAPI      string         `config:"music.qq"`
-	QiniuAK    string         `config:"qiniu.ak"`
-	QiniuSK    string         `config:"qiniu.sk"`
 	Pgsql      string         `config:"pgsql"`
 	Debug      bool           `config:"debug"`
 	Persist    []PersistHouse `config:"persist"`

@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/bihua-university/alisten/internal/music"
-	"github.com/bihua-university/alisten/internal/music/bilibili"
+	"github.com/bihua-university/alisten/internal/music/bihua"
 )
 
 type Order struct {
@@ -35,7 +37,21 @@ func doPickMusic(house *House, id, name, source, user string) PickMusicResult {
 		if strings.HasPrefix(name, "BV") {
 			db := music.GetMusic("db", name, true)
 			if db["id"] != name {
-				bilibili.Upload(name)
+				t := scheduler.NewTask("bilibili_upload", map[string]string{"bvid": name})
+				result := scheduler.Call(t, time.Minute*5)
+
+				if result != nil && result.Result != nil {
+					duration, _ := strconv.ParseInt(result.Result["duration"], 10, 64)
+					bihua.InsertMusic(&bihua.MusicModel{
+						MusicID:    name,
+						Name:       result.Result["name"],
+						Artist:     result.Result["artist"],
+						AlbumName:  result.Result["album"],
+						PictureURL: result.Result["picture"],
+						Duration:   duration,
+						URL:        result.Result["audio"],
+					})
+				}
 			}
 			source = "db"
 			id = name

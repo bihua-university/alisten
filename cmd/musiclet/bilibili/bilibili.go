@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,10 +16,12 @@ import (
 	"github.com/qiniu/go-sdk/v7/storagev2/credentials"
 	"github.com/qiniu/go-sdk/v7/storagev2/http_client"
 	"github.com/qiniu/go-sdk/v7/storagev2/uploader"
-
-	"github.com/bihua-university/alisten/internal/base"
-	"github.com/bihua-university/alisten/internal/music/bihua"
 )
+
+var Config struct {
+	QiniuAK string
+	QiniuSK string
+}
 
 type ctxt struct {
 	bvId     string
@@ -28,44 +31,50 @@ type ctxt struct {
 	duration int
 }
 
-func Upload(bvId string) {
+// ProcessUpload 处理B站视频上传任务
+func ProcessUpload(bvId string) (map[string]string, error) {
 	c := ctxt{bvId: bvId}
 
 	// 保存路径
 	savePath, err := GetSavePath()
 	if err != nil {
-		return
+		return nil, fmt.Errorf("获取保存路径失败: %v", err)
 	}
 
 	quality := c.audioQuality(bvId)
-	audio, photo, _ := c.download(bvId, savePath, quality)
+	audio, photo, err := c.download(bvId, savePath, quality)
+	if err != nil {
+		return nil, fmt.Errorf("下载失败: %v", err)
+	}
 	defer func() {
 		_ = os.Remove(photo)
 		_ = os.Remove(audio)
 	}()
+
 	photo, err = c.upload(photo, "jpg")
 	if err != nil {
-		return
+		return nil, fmt.Errorf("上传图片失败: %v", err)
 	}
+
 	audio, err = c.upload(audio, "mp3")
 	if err != nil {
-		return
+		return nil, fmt.Errorf("上传音频失败: %v", err)
 	}
-	_ = bihua.InsertMusic(&bihua.MusicModel{
-		MusicID:    bvId,
-		Name:       c.title,
-		Artist:     c.owner,
-		AlbumName:  bvId,
-		PictureURL: photo,
-		Duration:   int64(c.duration),
-		URL:        audio,
-		Lyric:      "",
-		PlayCount:  0,
-	})
+
+	res := map[string]string{
+		"id":       bvId,
+		"name":     c.title,
+		"artist":   c.owner,
+		"album":    bvId,
+		"picture":  photo,
+		"duration": strconv.Itoa(c.duration),
+		"audio":    audio,
+	}
+	return res, nil
 }
 
 func (c *ctxt) upload(filename string, ext string) (string, error) {
-	mac := credentials.NewCredentials(base.Config.QiniuAK, base.Config.QiniuSK)
+	mac := credentials.NewCredentials(Config.QiniuAK, Config.QiniuSK)
 	bucket := "bihua-oss"
 	key := fmt.Sprintf("alisten/%s.%s", c.bvId, ext)
 	uploadManager := uploader.NewUploadManager(&uploader.UploadManagerOptions{
