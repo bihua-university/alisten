@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
 
-	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
 )
@@ -28,27 +28,25 @@ func main() {
 	base.InitConfig()
 	bihua.InitDB()
 
-	gin.SetMode(gin.ReleaseMode)
-	if base.Config.Debug {
-		gin.SetMode(gin.DebugMode)
-	}
-
 	scheduler = task.NewServer(base.Config.Token) // 可以从配置文件读取token
 
+	// 创建HTTP multiplexer
+	mux := http.NewServeMux()
+
+	// 添加CORS中间件
+	handler := corsMiddleware(mux)
+
 	// 房间相关路由
-	g := gin.Default()
-	g.Use(Cors())
-	g.Any("house/add", addHouse)
-	g.Any("house/enter", enterHouse)
-	g.Any("house/search", searchHouses)
-	g.POST("music/pick", pickMusicHTTP)
+	mux.HandleFunc("/house/add", addHouseHTTP)
+	mux.HandleFunc("/house/enter", enterHouseHTTP)
+	mux.HandleFunc("/house/search", searchHousesHTTP)
+	mux.HandleFunc("POST /music/pick", pickMusicHTTP)
 
 	// task long-polling
-	g.GET("tasks/poll", gin.WrapF(scheduler.PollTaskHandler))
-	g.POST("tasks/result", gin.WrapF(scheduler.SubmitResultHandler))
+	mux.HandleFunc("GET /tasks/poll", scheduler.PollTaskHandler)
+	mux.HandleFunc("POST /tasks/result", scheduler.SubmitResultHandler)
 
-	g.Any("server", func(c *gin.Context) {
-		w, r := c.Writer, c.Request
+	mux.HandleFunc("/server", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "token,content-type,accesstoken")
@@ -134,9 +132,9 @@ func main() {
 	}
 
 	if base.Config.Debug {
-		log.Fatal(http.ListenAndServe(":8080", g))
+		log.Fatal(http.ListenAndServe(":8080", handler))
 	} else {
-		log.Fatal(http.ListenAndServeTLS(":443", "certificate.crt", "private.key", g))
+		log.Fatal(http.ListenAndServeTLS(":443", "certificate.crt", "private.key", handler))
 	}
 }
 
@@ -154,17 +152,17 @@ var route = map[string]func(ctx *Context){
 	"/house/houseuser":      houseuser,
 }
 
-func Cors() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "token,content-type,accesstoken")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "token,content-type,accesstoken")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		c.Next()
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func maskIP(ip string) string {
@@ -181,3 +179,15 @@ func lastCut(s, sep string) string {
 	}
 	return s
 }
+
+func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func readJSON(r *http.Request, v interface{}) error {
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
+type H = base.H

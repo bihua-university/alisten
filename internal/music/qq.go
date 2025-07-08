@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 
 	"github.com/bihua-university/alisten/internal/base"
@@ -18,7 +17,7 @@ import (
 
 var kuwoClient = kuwo.NewClient()
 
-func QQPost(u string, k gin.H) gjson.Result {
+func QQPost(u string, k H) gjson.Result {
 	marshal, err := json.Marshal(k)
 	if err != nil {
 		return gjson.Result{}
@@ -107,7 +106,7 @@ func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 	return SearchResult[Music]{Total: total, Data: res}
 }
 
-func getQQMusic(id string) gin.H {
+func getQQMusic(id string) H {
 	detail := QQGet("/song", url.Values{
 		"songmid": []string{id},
 	}).Get("data.track_info")
@@ -143,7 +142,7 @@ func getQQMusic(id string) gin.H {
 	ablumMid := detail.Get("album.mid").String()
 	picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", ablumMid)
 
-	h := gin.H{
+	h := H{
 		"type":       "music",
 		"url":        download.Get("data.url").String(),
 		"webUrl":     GenerateWebURL("qq", id),
@@ -153,7 +152,7 @@ func getQQMusic(id string) gin.H {
 		"lyric":      lyric.Get("data.lyric").String(),
 		"artist":     artist,
 		"name":       name,
-		"album": gin.H{
+		"album": H{
 			"name": detail.Get("album.name").String(),
 		},
 		"id": id,

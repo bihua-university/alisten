@@ -10,13 +10,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 
 	"github.com/bihua-university/alisten/internal/base"
 )
 
-func NeteasePost(u string, k gin.H, key string) gjson.Result {
+func NeteasePost(u string, k H, key string) gjson.Result {
 	k["cookie"] = base.Config.Cookie
 	marshal, err := json.Marshal(k)
 	if err != nil {
@@ -105,7 +104,7 @@ func GetNeteaseMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 }
 
 func SearchNeteasePlaylist(o SearchOption) SearchResult[Playlist] {
-	r := NeteasePost("/cloudsearch", gin.H{
+	r := NeteasePost("/cloudsearch", H{
 		"keywords": o.Keyword,
 		"type":     NeteasePlaylist,
 	}, "keywords")
@@ -135,7 +134,7 @@ func SearchNeteasePlaylist(o SearchOption) SearchResult[Playlist] {
 }
 
 func SearchNeteaseUserPlaylist(o SearchOption) SearchResult[Playlist] {
-	list := NeteasePost("/user/playlist", gin.H{
+	list := NeteasePost("/user/playlist", H{
 		"uid": o.Keyword,
 	}, "uid")
 
@@ -162,25 +161,25 @@ func SearchNeteaseUserPlaylist(o SearchOption) SearchResult[Playlist] {
 	return SearchResult[Playlist]{Total: total, Data: res}
 }
 
-func getNeteaseMusic(id string) gin.H {
+func getNeteaseMusic(id string) H {
 	// 从试听链接中下载
-	try := NeteasePost("/song/url/v1", gin.H{
+	try := NeteasePost("/song/url/v1", H{
 		"level": "exhigh", // 320kps
 		"id":    id,
 	}, "id")
 	url := try.Get("data.0.url").String()
 	if url == "" {
-		download := NeteasePost("/song/download/url/v1", gin.H{
+		download := NeteasePost("/song/download/url/v1", H{
 			"level": "exhigh", // 320kps
 			"id":    id,
 		}, "id")
 		url = download.Get("data.url").String()
 	}
 
-	detail := NeteasePost("/song/detail", gin.H{
+	detail := NeteasePost("/song/detail", H{
 		"ids": id,
 	}, "ids").Get("songs.0")
-	lyric := NeteasePost("/lyric", gin.H{
+	lyric := NeteasePost("/lyric", H{
 		"id": id,
 	}, "id")
 
@@ -193,7 +192,7 @@ func getNeteaseMusic(id string) gin.H {
 		return true
 	})
 
-	h := gin.H{
+	h := H{
 		"type":       "music",
 		"url":        url,
 		"webUrl":     GenerateWebURL("wy", id),
@@ -203,7 +202,7 @@ func getNeteaseMusic(id string) gin.H {
 		"lyric":      lyric.Get("lrc.lyric").String(),
 		"artist":     artist,
 		"name":       detail.Get("name").String(),
-		"album": gin.H{
+		"album": H{
 			"name": detail.Get("al.name").String(),
 		},
 		"id": id,

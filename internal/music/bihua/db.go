@@ -5,7 +5,6 @@ import (
 	"log"
 
 	"github.com/bihua-university/alisten/internal/base"
-	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -29,7 +28,7 @@ func InitDB() {
 }
 
 // SaveNeteaseMusic saves the music data retrieved from Netease to the database
-func SaveNeteaseMusic(music gin.H) error {
+func SaveNeteaseMusic(music base.H) error {
 	if DB == nil {
 		return nil // Database not initialized, skip saving
 	}
@@ -38,7 +37,7 @@ func SaveNeteaseMusic(music gin.H) error {
 		MusicID:    music["id"].(string),
 		Name:       music["name"].(string),
 		Artist:     music["artist"].(string),
-		AlbumName:  music["album"].(gin.H)["name"].(string),
+		AlbumName:  music["album"].(base.H)["name"].(string),
 		PictureURL: music["pictureUrl"].(string),
 		Duration:   music["duration"].(int64),
 		URL:        music["url"].(string),
@@ -137,8 +136,8 @@ func SearchMusicByDB(keyword string, page, pageSize int64) ([]MusicModel, int64,
 	return musics, total, nil
 }
 
-// ConvertToGinH converts a MusicModel to the gin.H format used by the API
-func ConvertToGinH(music *MusicModel) gin.H {
+// ConvertToGinH converts a MusicModel to the H format used by the API
+func ConvertToGinH(music *MusicModel) base.H {
 	// 需要从外部导入 GenerateWebURL 函数
 	webUrl := ""
 	switch {
@@ -149,7 +148,7 @@ func ConvertToGinH(music *MusicModel) gin.H {
 		}
 	}
 
-	return gin.H{
+	return base.H{
 		"type":       "music",
 		"id":         music.MusicID,
 		"url":        music.URL,
@@ -159,7 +158,7 @@ func ConvertToGinH(music *MusicModel) gin.H {
 		"lyric":      music.Lyric,
 		"artist":     music.Artist,
 		"name":       music.Name,
-		"album": gin.H{
+		"album": base.H{
 			"name": music.AlbumName,
 		},
 		"playCount": music.PlayCount,

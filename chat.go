@@ -2,13 +2,11 @@ package main
 
 import (
 	"time"
-
-	"github.com/gin-gonic/gin"
 )
 
 func chat(c *Context) {
 	// 转发所有消息
-	msg := gin.H{
+	msg := H{
 		"type":     "chat",
 		"nickName": c.conn.GetUser(),
 		"sendTime": c.data.Get("sendTime").Int(),
@@ -18,7 +16,7 @@ func chat(c *Context) {
 }
 
 func (c *Context) Chat(msg string) {
-	h := gin.H{
+	h := H{
 		"type":     "chat",
 		"nickName": c.conn.GetUser(),
 		"sendTime": time.Now().UnixMilli(),
@@ -32,7 +30,7 @@ func setName(c *Context) {
 	defer c.conn.mu.Unlock()
 	delay := c.Get("sendTime").Int() - time.Now().UnixMilli()
 	c.conn.user = c.data.Get("name").String() + "(" + c.conn.ip + ")"
-	c.conn.Send(gin.H{
+	c.conn.Send(H{
 		"type":  "delay",
 		"delay": delay,
 	})
@@ -44,7 +42,7 @@ func setName(c *Context) {
 			u = append(u, conn.user)
 		}
 	})
-	c.house.Broadcast(gin.H{
+	c.house.Broadcast(H{
 		"type": "house_user",
 		"data": u,
 	})

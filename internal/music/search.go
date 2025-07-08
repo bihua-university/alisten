@@ -4,15 +4,13 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/bihua-university/alisten/internal/music/bihua"
 )
 
 func SearchMusic(o SearchOption) SearchResult[Music] {
 	switch o.Source {
 	case "wy":
-		r := NeteasePost("/cloudsearch", gin.H{
+		r := NeteasePost("/cloudsearch", H{
 			"keywords": o.Keyword,
 			"type":     NeteaseSong,
 		}, "keywords")
@@ -70,7 +68,7 @@ func SearchPlaylist(o SearchOption) SearchResult[Playlist] {
 func GetSongList(o SearchOption) SearchResult[Music] {
 	switch o.Source {
 	case "wy":
-		r := NeteasePost("/playlist/track/all", gin.H{
+		r := NeteasePost("/playlist/track/all", H{
 			"id": o.ID,
 		}, "id")
 		return GetNeteaseMusicResult(r.Get("songs"), o)

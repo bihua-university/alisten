@@ -7,6 +7,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type H = map[string]any
+
 var Config struct {
 	Addr       string         `config:"addr"`
 	Token      string         `config:"token"`
