@@ -167,7 +167,6 @@ func (h *House) Broadcast(msg any) {
 
 func (h *House) Update() {
 	skip := false
-	cleanup := false
 	h.lock(func() {
 		// no song to play
 		if h.Current.id == "" || h.End.Before(time.Now()) {
@@ -175,14 +174,9 @@ func (h *House) Update() {
 		}
 		// 检查是否需要清理房间
 		if len(h.Connection) == 0 && !h.persist && time.Since(h.lastActiveTime) > 5*time.Minute {
-			cleanup = true
+			h.closeHouse()
 		}
 	})
-
-	if cleanup {
-		h.Close()
-		return
-	}
 
 	if skip {
 		h.Skip() // 切歌
@@ -280,6 +274,12 @@ func (h *House) Skip() {
 	var play Order
 	change := false
 	h.lock(func() {
+		// Outer check cannot guarantee that we need to skip
+		// because the current song may be updated by another goroutine.
+		// Double check is needed to avoid skipping twice.
+		if h.Current.id != "" && h.End.After(time.Now()) {
+			return
+		}
 		if len(h.Playlist) == 0 {
 			return
 		}
@@ -343,20 +343,15 @@ func houseuser(c *Context) {
 }
 
 // 关闭当前房间
-func (h *House) Close() {
+func (h *House) closeHouse() {
 	// 查找当前房间的ID
-	var houseID string
 	housesMu.Lock()
 	for id, house := range houses {
 		if house == h {
-			houseID = id
+			close(h.close)
+			delete(houses, id)
 			break
 		}
-	}
-
-	if houseID != "" {
-		close(h.close)
-		delete(houses, houseID)
 	}
 	housesMu.Unlock()
 }
