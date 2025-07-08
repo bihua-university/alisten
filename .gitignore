@@ -5,3 +5,4 @@ dist
 build.sh
 /musiclet
 musiclet.exe
+test-config.json
