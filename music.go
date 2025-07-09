@@ -118,6 +118,7 @@ func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		HouseID  string `json:"houseId"`
 		Password string `json:"housePwd"`
+		User     string `json:"user"`
 		ID       string `json:"id"`
 		Name     string `json:"name"`
 		Source   string `json:"source"`
@@ -138,7 +139,7 @@ func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := doPickMusic(house, request.ID, request.Name, request.Source, "HTTP User")
+	result := doPickMusic(house, request.ID, request.Name, request.Source, request.User)
 
 	if result.Success {
 		writeJSON(w, http.StatusOK, H{
