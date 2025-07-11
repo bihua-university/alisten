@@ -9,14 +9,11 @@ put config.json in the root directory of your project.
 ```json
 {
     "addr": ":80",
+    "token": "your-auth-token-here",
     "music": {
         "netease": "...",
         "cookie": "...",
         "qq": "..."
-    },
-    "qiniu": {
-        "ak": "",
-        "sk": ""
     },
     "debug": true,
     "pgsql": "...",
@@ -40,11 +37,10 @@ put config.json in the root directory of your project.
 ### 配置说明
 
 - `addr`: 服务器监听地址
+- `token`: 认证令牌
 - `music.netease`: 网易云音乐 API 地址
 - `music.cookie`: 音乐平台 Cookie
 - `music.qq`: QQ音乐 API 地址
-- `qiniu.ak`: 七牛云 Access Key
-- `qiniu.sk`: 七牛云 Secret Key
 - `debug`: 调试模式开关
 - `pgsql`: PostgreSQL 数据库连接字符串
 - `persist`: 持久化房间配置数组
