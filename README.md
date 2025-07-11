@@ -139,3 +139,29 @@ Musiclet 是一个独立的音乐服务客户端，需要单独的配置文件�
 ```bash
 go build && ./alisten
 ```
+
+## 部署指南
+
+详细的部署说明请参考 [部署指南](docs/deploy.md)，包含：
+
+- Docker/Podman 容器化部署
+- 完整的配置文件说明
+- 生产环境建议
+- 故障排除指南
+
+## Docker 快速启动
+
+使用 Docker Compose 一键启动所有服务：
+
+```bash
+# 克隆项目
+git clone https://github.com/bihua-university/alisten.git
+cd alisten
+
+# 准备配置文件
+cp config.json.example config.json
+cp musiclet-config.json.example musiclet-config.json
+
+# 启动服务
+docker compose up -d
+```
