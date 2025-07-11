@@ -36,9 +36,6 @@ WORKDIR /app
 # 从构建阶段复制二进制文件
 COPY --from=builder /app/musiclet .
 
-# 创建配置文件目录
-RUN mkdir -p /app/config
-
 # 更改文件所有者
 RUN chown -R musiclet:musiclet /app
 
