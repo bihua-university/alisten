@@ -7,14 +7,15 @@ WORKDIR /app
 # 安装必要的系统依赖
 RUN apk add --no-cache git ca-certificates tzdata
 
-# 复制整个项目（从项目根目录）
-COPY . .
-
-# 下载依赖
+# 复制 go.mod 和 go.sum 文件并下载依赖（利用 Docker 缓存）
+COPY go.mod go.sum ./
 RUN go mod download
 
+# 复制整个项目源代码
+COPY . .
+
 # 构建 musiclet 应用
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o musiclet ./cmd/musiclet
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o musiclet ./cmd/musiclet
 
 # 使用轻量级的 alpine 镜像作为运行环境
 FROM alpine:latest
