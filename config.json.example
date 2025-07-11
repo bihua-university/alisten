@@ -1,0 +1,19 @@
+{
+    "addr": ":8080",
+    "token": "your-auth-token-here",
+    "music": {
+        "netease": "http://localhost:3000",
+        "cookie": "",
+        "qq": "http://localhost:3300"
+    },
+    "debug": false,
+    "pgsql": "host=localhost user=postgres password=your-password dbname=alisten port=5432 sslmode=disable",
+    "persist": [
+        {
+            "id": "room",
+            "name": "音乐房间",
+            "desc": "这是一个持久化的音乐房间",
+            "password": ""
+        }
+    ]
+}

@@ -1,0 +1,30 @@
+services:
+  # Alisten 服务
+  alisten:
+    image: ghcr.io/bihua-university/alisten:latest
+    container_name: alisten
+    volumes:
+      - ./config.json:/app/config.json:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "8080:8080"
+    networks:
+      - alisten-network
+
+  # Musiclet 工作服务
+  musiclet:
+    image: ghcr.io/bihua-university/alisten-musiclet:latest
+    container_name: alisten-musiclet
+    volumes:
+      - ./musiclet-config.json:/app/config.json:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - alisten-network
+
+networks:
+  alisten-network:
+    driver: bridge

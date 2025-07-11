@@ -1,7 +1,9 @@
 config.json
+musiclet-config.json
 alisten
 alisten.exe
 dist
 build.sh
 /musiclet
 musiclet.exe
+test-config.json
