@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bihua-university/alisten/internal/auth"
+	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music"
 	"github.com/bihua-university/alisten/internal/music/bihua"
 )
@@ -16,7 +18,7 @@ import (
 type Order struct {
 	source string
 	id     string
-	user   string
+	user   auth.User
 	likes  int
 }
 
@@ -30,7 +32,7 @@ type PickMusicResult struct {
 }
 
 // doPickMusic 核心点歌逻辑，被pickMusic和pickMusicHTTP共同使用
-func doPickMusic(house *House, id, name, source, user string) PickMusicResult {
+func doPickMusic(house *House, id, name, source string, user auth.User) PickMusicResult {
 	// 聊天点歌只有名字，没有ID的情况
 	if id == "" {
 		if strings.HasPrefix(name, "BV") {
@@ -125,27 +127,27 @@ func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, H{"error": "Invalid request payload"})
+		writeJSON(w, http.StatusBadRequest, base.H{"error": "Invalid request payload"})
 		return
 	}
 
 	house := GetHouse(request.HouseID)
 	if house == nil {
-		writeJSON(w, http.StatusNotFound, H{"error": "房间不存在"})
+		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
 		return
 	}
 	if house.Password != request.Password {
-		writeJSON(w, http.StatusUnauthorized, H{"error": "密码错误"})
+		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
 		return
 	}
 
-	result := doPickMusic(house, request.ID, request.Name, request.Source, request.User)
+	result := doPickMusic(house, request.ID, request.Name, request.Source, auth.User{Name: request.User})
 
 	if result.Success {
-		writeJSON(w, http.StatusOK, H{
+		writeJSON(w, http.StatusOK, base.H{
 			"code":    "20000",
 			"message": result.Message,
-			"data": H{
+			"data": base.H{
 				"name":   result.Name,
 				"source": result.Source,
 				"id":     result.ID,
@@ -153,7 +155,7 @@ func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	} else {
 		statusCode := http.StatusBadRequest
-		writeJSON(w, statusCode, H{"error": result.Message})
+		writeJSON(w, statusCode, base.H{"error": result.Message})
 	}
 }
 
@@ -172,7 +174,7 @@ func searchMusic(c *Context) {
 	} else {
 		r = music.SearchMusic(o)
 	}
-	c.conn.Send(H{
+	c.conn.Send(base.H{
 		"type":      "search",
 		"data":      r.Data,
 		"totalSize": r.Total,
@@ -215,8 +217,8 @@ func pickMusic(c *Context) {
 	// WebSocket版本不需要返回错误响应，静默失败即可
 }
 
-func merge(h1, h2 H) H {
-	r := make(H, len(h1)+len(h2))
+func merge(h1, h2 base.H) base.H {
+	r := make(base.H, len(h1)+len(h2))
 	for k, v := range h1 {
 		r[k] = v
 	}
@@ -237,7 +239,7 @@ func voteSkip(c *Context) {
 	})
 
 	c.Chat("投票切歌")
-	c.house.Skip()
+	c.house.Skip(true)
 	/*
 	   house.VoteSkip = append(house.VoteSkip, request.User)
 
@@ -248,11 +250,11 @@ func voteSkip(c *Context) {
 	       }
 	       house.VoteSkip = nil
 	       house.Mu.Unlock()
-	       c.JSON(http.StatusOK, H{"message": "歌曲已切换"})
+	       c.JSON(http.StatusOK, base.H{"message": "歌曲已切换"})
 	       return
 	   }
 
-	   c.JSON(http.StatusOK, H{"message": "投票已记录", "current_votes": len(house.VoteSkip)})
+	   c.JSON(http.StatusOK, base.H{"message": "投票已记录", "current_votes": len(house.VoteSkip)})
 	*/
 }
 
@@ -289,7 +291,7 @@ func searchList(c *Context) {
 		Page:     c.Get("pageIndex").Int(),
 		PageSize: c.Get("pageSize").Int(),
 	})
-	c.conn.Send(H{
+	c.conn.Send(base.H{
 		"type":      "searchlist",
 		"data":      r.Data,
 		"totalSize": r.Total,
@@ -313,7 +315,7 @@ func getCurrentMusic(c *Context) {
 		if h.Current.id != "" {
 			// 发送播放单曲
 			m := music.GetMusic(h.Current.source, h.Current.id, false)
-			r := merge(m, H{
+			r := merge(m, base.H{
 				"pushTime": h.PushTime,
 			})
 			c.conn.Send(r)

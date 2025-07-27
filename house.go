@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bihua-university/alisten/internal/auth"
+	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music"
 	"github.com/bihua-university/alisten/internal/syncx"
 
@@ -30,7 +32,7 @@ type House struct {
 	End        time.Time
 	PushTime   int64
 	Playlist   []Order
-	VoteSkip   []string
+	VoteSkip   []auth.User
 	Connection []*Connection
 
 	// private
@@ -52,13 +54,13 @@ func addHouseHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
-		writeJSON(w, http.StatusBadRequest, H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, base.H{"error": err.Error()})
 		return
 	}
 
 	houseID := uuid.New().String()
 	createHouse(houseID, requestBody.Name, requestBody.Desc, requestBody.Password, false)
-	writeJSON(w, http.StatusOK, H{"code": "20000", "message": "房间创建成功", "data": houseID})
+	writeJSON(w, http.StatusOK, base.H{"code": "20000", "message": "房间创建成功", "data": houseID})
 }
 
 func createHouse(houseID string, name, desc, password string, persist bool) {
@@ -68,7 +70,7 @@ func createHouse(houseID string, name, desc, password string, persist bool) {
 		Password: password,
 		Mode:     NormalMode,
 		Playlist: make([]Order, 0),
-		VoteSkip: make([]string, 0),
+		VoteSkip: make([]auth.User, 0),
 
 		persist:        persist,
 		lastActiveTime: time.Now(),
@@ -95,21 +97,21 @@ func enterHouseHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, base.H{"error": err.Error()})
 		return
 	}
 
 	house, exists := houses[request.HouseID]
 	if !exists {
-		writeJSON(w, http.StatusNotFound, H{"error": "房间不存在"})
+		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
 		return
 	}
 
 	if house.Password != request.Password {
-		writeJSON(w, http.StatusUnauthorized, H{"error": "密码错误"})
+		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
 		return
 	}
-	writeJSON(w, http.StatusOK, H{"code": "20000", "message": "进入房间成功", "data": request.HouseID})
+	writeJSON(w, http.StatusOK, base.H{"code": "20000", "message": "进入房间成功", "data": request.HouseID})
 }
 
 func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +132,7 @@ func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	housesMu.Unlock()
 
-	writeJSON(w, http.StatusOK, H{"code": "20000", "message": "房间列表", "data": response})
+	writeJSON(w, http.StatusOK, base.H{"code": "20000", "message": "房间列表", "data": response})
 }
 
 func (h *House) lock(fn func()) {
@@ -179,7 +181,7 @@ func (h *House) Update() {
 	})
 
 	if skip {
-		h.Skip() // 切歌
+		h.Skip(false) // 切歌
 	}
 }
 
@@ -190,12 +192,12 @@ func (h *House) Push(o Order) {
 		return
 	}
 
-	var r H
+	var r base.H
 	h.lock(func() {
 		now := time.Now()
 		h.PushTime = now.Add(200 * time.Millisecond).UnixMilli() // 200ms delay
 		h.End = now.Add(time.Duration(duration) * time.Millisecond)
-		r = merge(m, H{
+		r = merge(m, base.H{
 			"pushTime": h.PushTime,
 		})
 	})
@@ -204,13 +206,13 @@ func (h *House) Push(o Order) {
 }
 
 func (h *House) enter(c *Connection) {
-	var list []H
-	var u []string
+	var list []base.H
+	var u []auth.User
 	h.lock(func() {
 		if h.Current.id != "" {
 			// 发送播放单曲
 			m := music.GetMusic(h.Current.source, h.Current.id, false)
-			r := merge(m, H{
+			r := merge(m, base.H{
 				"pushTime": h.PushTime,
 			})
 			c.Send(r)
@@ -221,18 +223,18 @@ func (h *House) enter(c *Connection) {
 		}
 	})
 	// 推送播放列表
-	c.Send(H{
+	c.Send(base.H{
 		"type": "pick",
 		"data": list,
 	})
-	h.Broadcast(H{
+	h.Broadcast(base.H{
 		"type": "house_user",
 		"data": u,
 	})
 }
 
-func (h *House) playlist() []H {
-	var list []H
+func (h *House) playlist() []base.H {
+	var list []base.H
 
 	// playlist don't need this information
 	push := func(o Order) {
@@ -241,13 +243,13 @@ func (h *House) playlist() []H {
 		}
 		m := music.GetMusic(o.source, o.id, true)
 		keep := []string{"type", "source", "artist", "duration", "name", "album", "pictureUrl", "webUrl"}
-		r := make(H, len(keep)+1)
+		r := make(base.H, len(keep)+1)
 		for _, k := range keep {
 			if v, ok := m[k]; ok {
 				r[k] = v
 			}
 		}
-		r["nickName"] = o.user
+		r["user"] = o.user
 		list = append(list, r)
 	}
 
@@ -263,21 +265,21 @@ func (h *House) PushPlaylist() {
 	defer h.Mu.Unlock()
 	list := h.playlist()
 	online := len(h.Connection)
-	h.Broadcast(H{
+	h.Broadcast(base.H{
 		"type":         "pick",
 		"data":         list,
 		"online_count": online,
 	})
 }
 
-func (h *House) Skip() {
+func (h *House) Skip(force bool) {
 	var play Order
 	change := false
 	h.lock(func() {
 		// Outer check cannot guarantee that we need to skip
 		// because the current song may be updated by another goroutine.
 		// Double check is needed to avoid skipping twice.
-		if h.Current.id != "" && h.End.After(time.Now()) {
+		if !force && h.Current.id != "" && h.End.After(time.Now()) {
 			return
 		}
 		if len(h.Playlist) == 0 {
@@ -304,7 +306,7 @@ func (h *House) Skip() {
 }
 
 func (h *House) Leave(c *Connection) {
-	var u []string
+	var u []auth.User
 	h.lock(func() {
 		// 移除连接
 		for i, conn := range h.Connection {
@@ -323,20 +325,20 @@ func (h *House) Leave(c *Connection) {
 		}
 	})
 	// 广播更新后的用户列表
-	h.Broadcast(H{
+	h.Broadcast(base.H{
 		"type": "house_user",
 		"data": u,
 	})
 }
 
 func houseuser(c *Context) {
-	var u []string
+	var u []auth.User
 	c.WithHouse(func(h *House) {
 		for _, conn := range h.Connection {
 			u = append(u, conn.user)
 		}
 	})
-	c.conn.Send(H{
+	c.conn.Send(base.H{
 		"type": "house_user",
 		"data": u,
 	})

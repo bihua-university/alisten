@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/syncx"
 
 	"github.com/gorilla/websocket"
@@ -31,7 +32,7 @@ type Connection struct {
 	send syncx.UnboundedChan[[]byte]
 
 	mu   sync.Mutex
-	user string
+	user auth.User
 
 	conn *websocket.Conn
 }
@@ -44,7 +45,7 @@ func (c *Connection) Start() {
 	}()
 }
 
-func (c *Connection) GetUser() string {
+func (c *Connection) GetUser() auth.User {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.user

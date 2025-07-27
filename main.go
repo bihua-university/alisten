@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music/bihua"
 	"github.com/bihua-university/alisten/internal/syncx"
@@ -75,7 +76,9 @@ func main() {
 		conn := &Connection{
 			conn: wc,
 			ip:   ip,
-			user: "(" + ip + ")",
+			user: auth.User{
+				Name: "游客(" + ip + ")",
+			},
 			send: syncx.NewUnboundedChan[[]byte](8),
 		}
 
@@ -140,7 +143,7 @@ func main() {
 
 var route = map[string]func(ctx *Context){
 	"/chat":                 chat,
-	"/setting/name":         setName,
+	"/setting/user":         setUser,
 	"/music/search":         searchMusic,
 	"/music/pick":           pickMusic,
 	"/music/delete":         deleteMusic,
@@ -185,9 +188,3 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
 }
-
-func readJSON(r *http.Request, v interface{}) error {
-	return json.NewDecoder(r.Body).Decode(v)
-}
-
-type H = base.H
