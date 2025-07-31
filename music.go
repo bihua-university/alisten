@@ -118,12 +118,12 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 // HTTP version of pickMusic handler
 func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		HouseID  string `json:"houseId"`
-		Password string `json:"housePwd"`
-		User     string `json:"user"`
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Source   string `json:"source"`
+		HouseID  string    `json:"houseId"`
+		Password string    `json:"housePwd"`
+		User     auth.User `json:"user"`
+		ID       string    `json:"id"`
+		Name     string    `json:"name"`
+		Source   string    `json:"source"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -141,7 +141,7 @@ func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := doPickMusic(house, request.ID, request.Name, request.Source, auth.User{Name: request.User})
+	result := doPickMusic(house, request.ID, request.Name, request.Source, request.User)
 
 	if result.Success {
 		writeJSON(w, http.StatusOK, base.H{
