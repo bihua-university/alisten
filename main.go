@@ -144,6 +144,7 @@ func main() {
 var route = map[string]func(ctx *Context){
 	"/chat":                 chat,
 	"/setting/user":         setUser,
+	"/setting/pull":         settingSync,
 	"/music/search":         searchMusic,
 	"/music/pick":           pickMusic,
 	"/music/delete":         deleteMusic,

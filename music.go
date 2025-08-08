@@ -302,7 +302,7 @@ func playMode(c *Context) {
 	mode := c.Get("mode").String()
 	c.WithHouse(func(house *House) {
 		switch mode {
-		case "normal":
+		case "sequential":
 			house.Mode = NormalMode
 		case "random":
 			house.Mode = RandomMode

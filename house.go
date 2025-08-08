@@ -22,6 +22,17 @@ const (
 	RandomMode
 )
 
+func (m Mode) String() string {
+	switch m {
+	case NormalMode:
+		return "sequential"
+	case RandomMode:
+		return "random"
+	default:
+		return "unknown"
+	}
+}
+
 type House struct {
 	Mu         sync.Mutex
 	Name       string
@@ -341,6 +352,18 @@ func houseuser(c *Context) {
 	c.conn.Send(base.H{
 		"type": "house_user",
 		"data": u,
+	})
+}
+
+func settingSync(c *Context) {
+	c.conn.mu.Lock()
+	defer c.conn.mu.Unlock()
+
+	c.conn.Send(base.H{
+		"type": "setting/push",
+		"data": base.H{
+			"playmode": c.house.Mode.String(),
+		},
 	})
 }
 
