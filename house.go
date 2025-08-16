@@ -355,6 +355,38 @@ func houseuser(c *Context) {
 	})
 }
 
+// HTTP version of houseuser
+func houseuserHTTP(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		HouseID  string `json:"houseId"`
+		Password string `json:"housePwd"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, base.H{"error": "Invalid request payload"})
+		return
+	}
+
+	house := GetHouse(request.HouseID)
+	if house == nil {
+		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+		return
+	}
+	if house.Password != request.Password {
+		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+		return
+	}
+
+	var u []auth.User
+	house.Mu.Lock()
+	for _, conn := range house.Connection {
+		u = append(u, conn.user)
+	}
+	house.Mu.Unlock()
+
+	writeJSON(w, http.StatusOK, base.H{"data": u})
+}
+
 func settingSync(c *Context) {
 	c.conn.mu.Lock()
 	defer c.conn.mu.Unlock()
