@@ -41,7 +41,12 @@ func main() {
 	mux.HandleFunc("/house/add", addHouseHTTP)
 	mux.HandleFunc("/house/enter", enterHouseHTTP)
 	mux.HandleFunc("/house/search", searchHousesHTTP)
+	mux.HandleFunc("/house/houseuser", houseuserHTTP)
+	mux.HandleFunc("/music/playlist", getPlaylistHTTP)
 	mux.HandleFunc("POST /music/pick", pickMusicHTTP)
+	mux.HandleFunc("POST /music/delete", deleteMusicHTTP)
+	mux.HandleFunc("POST /music/good", goodMusicHTTP)
+	mux.HandleFunc("POST /music/skip/vote", voteSkipHTTP)
 
 	// task long-polling
 	mux.HandleFunc("GET /tasks/poll", scheduler.PollTaskHandler)

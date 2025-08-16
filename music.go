@@ -159,6 +159,146 @@ func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HTTP version of deleteMusic
+func deleteMusicHTTP(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		HouseID  string `json:"houseId"`
+		Password string `json:"housePwd"`
+		ID       string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, base.H{"error": "Invalid request payload"})
+		return
+	}
+
+	house := GetHouse(request.HouseID)
+	if house == nil {
+		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+		return
+	}
+	if house.Password != request.Password {
+		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+		return
+	}
+
+	// reuse deleteMusic logic by creating a temporary Context
+	// but deleteMusic expects a websocket Context; we'll perform the deletion inline
+	deleted := false
+	house.Mu.Lock()
+	for i, o := range house.Playlist {
+		m, _ := music.GetMusic(o.source, o.id, true)["name"].(string)
+		if m == request.ID {
+			deleted = true
+			house.Playlist = append(house.Playlist[:i], house.Playlist[i+1:]...)
+			break
+		}
+	}
+	house.Mu.Unlock()
+
+	if deleted {
+		house.PushPlaylist()
+		writeJSON(w, http.StatusOK, base.H{"message": "删除成功"})
+	} else {
+		writeJSON(w, http.StatusNotFound, base.H{"error": "未找到要删除的音乐"})
+	}
+}
+
+// HTTP version of voteSkip
+func voteSkipHTTP(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		HouseID  string    `json:"houseId"`
+		Password string    `json:"housePwd"`
+		User     auth.User `json:"user"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, base.H{"error": "Invalid request payload"})
+		return
+	}
+
+	house := GetHouse(request.HouseID)
+	if house == nil {
+		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+		return
+	}
+	if house.Password != request.Password {
+		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+		return
+	}
+
+	// check if already voted
+	for _, user := range house.VoteSkip {
+		if user == request.User {
+			writeJSON(w, http.StatusOK, base.H{"message": "已经投过票"})
+			return
+		}
+	}
+
+	house.VoteSkip = append(house.VoteSkip, request.User)
+
+	// if votes reach threshold (3), skip
+	if len(house.VoteSkip) >= 3 {
+		house.Skip(true)
+		house.VoteSkip = nil
+		writeJSON(w, http.StatusOK, base.H{"message": "歌曲已切换"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, base.H{"message": "投票已记录", "current_votes": len(house.VoteSkip)})
+}
+
+// HTTP version of goodMusic
+func goodMusicHTTP(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		HouseID  string `json:"houseId"`
+		Password string `json:"housePwd"`
+		Index    int    `json:"index"`
+		Name     string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, base.H{"error": "Invalid request payload"})
+		return
+	}
+
+	house := GetHouse(request.HouseID)
+	if house == nil {
+		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+		return
+	}
+	if house.Password != request.Password {
+		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+		return
+	}
+
+	if request.Index == 0 {
+		writeJSON(w, http.StatusBadRequest, base.H{"error": "index must be > 0"})
+		return
+	}
+	idx := request.Index - 1
+
+	changed := false
+	likes := 0
+	house.Mu.Lock()
+	if idx >= 0 && idx < len(house.Playlist) {
+		house.Playlist[idx].likes += 1
+		likes = house.Playlist[idx].likes
+		sort.SliceStable(house.Playlist, func(i, j int) bool {
+			return house.Playlist[i].likes > house.Playlist[j].likes
+		})
+		changed = true
+	}
+	house.Mu.Unlock()
+
+	if changed {
+		house.PushPlaylist()
+		writeJSON(w, http.StatusOK, base.H{"message": "点赞成功", "likes": likes})
+	} else {
+		writeJSON(w, http.StatusNotFound, base.H{"error": "未找到对应音乐"})
+	}
+}
+
 func searchMusic(c *Context) {
 	name := c.Get("name").String()
 	o := music.SearchOption{
@@ -256,6 +396,55 @@ func voteSkip(c *Context) {
 
 	   c.JSON(http.StatusOK, base.H{"message": "投票已记录", "current_votes": len(house.VoteSkip)})
 	*/
+}
+
+// HTTP API to get current playlist
+func getPlaylistHTTP(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		HouseID  string `json:"houseId"`
+		Password string `json:"housePwd"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, base.H{"error": "Invalid request payload"})
+		return
+	}
+
+	house := GetHouse(request.HouseID)
+	if house == nil {
+		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+		return
+	}
+	if house.Password != request.Password {
+		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+		return
+	}
+
+	// build playlist response
+	type item struct {
+		Name   string    `json:"name"`
+		Source string    `json:"source"`
+		ID     string    `json:"id"`
+		Likes  int       `json:"likes"`
+		User   auth.User `json:"user"`
+	}
+
+	var list []item
+	house.Mu.Lock()
+	for _, o := range house.Playlist {
+		m := music.GetMusic(o.source, o.id, true)
+		name, _ := m["name"].(string)
+		list = append(list, item{
+			Name:   name,
+			Source: o.source,
+			ID:     o.id,
+			Likes:  o.likes,
+			User:   o.user,
+		})
+	}
+	house.Mu.Unlock()
+
+	writeJSON(w, http.StatusOK, base.H{"playlist": list})
 }
 
 func goodMusic(c *Context) {
