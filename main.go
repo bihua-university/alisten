@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -41,7 +42,7 @@ func main() {
 	mux.HandleFunc("/house/add", addHouseHTTP)
 	mux.HandleFunc("/house/enter", enterHouseHTTP)
 	mux.HandleFunc("/house/search", searchHousesHTTP)
-	mux.HandleFunc("POST /music/pick", pickMusicHTTP)
+	mux.HandleFunc("POST /music/pick", wrapWebsocket(pickMusic))
 
 	// task long-polling
 	mux.HandleFunc("GET /tasks/poll", scheduler.PollTaskHandler)
@@ -188,4 +189,29 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+func wrapWebsocket(fn func(*Context)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		defer r.Body.Close()
+		msg := gjson.ParseBytes(body)
+
+		house := GetHouse(msg.Get("houseId").String())
+		if house == nil {
+			writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+			return
+		}
+		if house.Password != msg.Get("password").String() {
+			writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+			return
+		}
+
+		ctx := &Context{
+			hw:    w,
+			house: house,
+			data:  msg,
+		}
+		fn(ctx)
+	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"sync"
 
 	"github.com/bihua-university/alisten/internal/auth"
@@ -13,6 +14,7 @@ import (
 
 type Context struct {
 	conn  *Connection
+	hw    http.ResponseWriter
 	house *House
 	data  gjson.Result
 }
@@ -25,6 +27,48 @@ func (c *Context) WithHouse(f func(*House)) {
 	c.house.Mu.Lock()
 	defer c.house.Mu.Unlock()
 	f(c.house)
+}
+
+func (c *Context) IsWebSocket() bool {
+	return c.conn != nil
+}
+
+func (c *Context) IsHTTP() bool {
+	return c.hw != nil
+}
+
+func (c *Context) User() auth.User {
+	if c.IsWebSocket() {
+		c.conn.mu.Lock()
+		defer c.conn.mu.Unlock()
+		return c.conn.user
+	}
+	if c.IsHTTP() {
+		u := auth.User{
+			Name:  c.data.Get("user.name").String(),
+			Email: c.data.Get("user.email").String(),
+		}
+		return u
+	}
+	return auth.User{}
+}
+
+func (c *Context) Send(j any) {
+	if c.conn != nil {
+		c.conn.Send(j)
+	}
+	if c.hw != nil {
+		writeJSON(c.hw, http.StatusOK, j)
+	}
+}
+
+func (c *Context) Broadcast(j any) {
+	if c.conn != nil {
+		c.house.Broadcast(j)
+	}
+	if c.hw != nil {
+		writeJSON(c.hw, http.StatusOK, j)
+	}
 }
 
 type Connection struct {

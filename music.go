@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -115,50 +114,6 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 	}
 }
 
-// HTTP version of pickMusic handler
-func pickMusicHTTP(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		HouseID  string    `json:"houseId"`
-		Password string    `json:"housePwd"`
-		User     auth.User `json:"user"`
-		ID       string    `json:"id"`
-		Name     string    `json:"name"`
-		Source   string    `json:"source"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, base.H{"error": "Invalid request payload"})
-		return
-	}
-
-	house := GetHouse(request.HouseID)
-	if house == nil {
-		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
-		return
-	}
-	if house.Password != request.Password {
-		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
-		return
-	}
-
-	result := doPickMusic(house, request.ID, request.Name, request.Source, request.User)
-
-	if result.Success {
-		writeJSON(w, http.StatusOK, base.H{
-			"code":    "20000",
-			"message": result.Message,
-			"data": base.H{
-				"name":   result.Name,
-				"source": result.Source,
-				"id":     result.ID,
-			},
-		})
-	} else {
-		statusCode := http.StatusBadRequest
-		writeJSON(w, statusCode, base.H{"error": result.Message})
-	}
-}
-
 func searchMusic(c *Context) {
 	name := c.Get("name").String()
 	o := music.SearchOption{
@@ -208,13 +163,27 @@ func pickMusic(c *Context) {
 	source := c.Get("source").String()
 
 	// 调用核心点歌逻辑
-	result := doPickMusic(c.house, id, name, source, c.conn.user)
+	result := doPickMusic(c.house, id, name, source, c.User())
 
-	if result.Success {
+	if result.Success && c.IsWebSocket() {
 		// Push new playlist
 		c.Chat("点歌 " + result.Name)
 	}
-	// WebSocket版本不需要返回错误响应，静默失败即可
+	if c.IsHTTP() {
+		if result.Success {
+			c.Send(base.H{
+				"code":    "20000",
+				"message": result.Message,
+				"data": base.H{
+					"name":   result.Name,
+					"source": result.Source,
+					"id":     result.ID,
+				},
+			})
+		} else {
+			writeJSON(c.hw, http.StatusBadRequest, base.H{"error": result.Message})
+		}
+	}
 }
 
 func merge(h1, h2 base.H) base.H {
