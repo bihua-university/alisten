@@ -30,7 +30,6 @@ type PickMusicResult struct {
 	ID      string `json:"id,omitempty"`
 }
 
-// doPickMusic 核心点歌逻辑，被pickMusic和pickMusicHTTP共同使用
 func doPickMusic(house *House, id, name, source string, user auth.User) PickMusicResult {
 	// 聊天点歌只有名字，没有ID的情况
 	if id == "" {
@@ -129,11 +128,20 @@ func searchMusic(c *Context) {
 	} else {
 		r = music.SearchMusic(o)
 	}
-	c.conn.Send(base.H{
-		"type":      "search",
-		"data":      r.Data,
-		"totalSize": r.Total,
-	})
+
+	if c.IsWebSocket() {
+		c.conn.Send(base.H{
+			"type":      "search",
+			"data":      r.Data,
+			"totalSize": r.Total,
+		})
+	}
+	if c.IsHTTP() {
+		c.Send(base.H{
+			"list":      r.Data,
+			"totalSize": r.Total,
+		})
+	}
 }
 
 func deleteMusic(c *Context) {
@@ -153,7 +161,14 @@ func deleteMusic(c *Context) {
 
 	if deleted {
 		c.house.PushPlaylist()
-		c.Chat("删除音乐 " + name)
+		if c.IsWebSocket() {
+			c.Chat("删除音乐 " + name)
+		}
+		if c.IsHTTP() {
+			c.Send(base.H{"name": name})
+		}
+	} else if c.IsHTTP() {
+		writeJSON(c.hw, http.StatusNotFound, base.H{"error": "未找到要删除的音乐"})
 	}
 }
 
@@ -172,13 +187,9 @@ func pickMusic(c *Context) {
 	if c.IsHTTP() {
 		if result.Success {
 			c.Send(base.H{
-				"code":    "20000",
-				"message": result.Message,
-				"data": base.H{
-					"name":   result.Name,
-					"source": result.Source,
-					"id":     result.ID,
-				},
+				"name":   result.Name,
+				"source": result.Source,
+				"id":     result.ID,
 			})
 		} else {
 			writeJSON(c.hw, http.StatusBadRequest, base.H{"error": result.Message})
@@ -198,33 +209,60 @@ func merge(h1, h2 base.H) base.H {
 }
 
 func voteSkip(c *Context) {
+	voted := false
 	c.WithHouse(func(house *House) {
 		// 检查用户是否已投票
-		for _, user := range house.VoteSkip {
-			if user == c.conn.user {
+		user := c.User()
+		for _, existingUser := range house.VoteSkip {
+			if existingUser.Name == user.Name && existingUser.Email == user.Email {
+				voted = true
 				return
 			}
 		}
+
+		if !voted {
+			house.VoteSkip = append(house.VoteSkip, user)
+		}
 	})
 
-	c.Chat("投票切歌")
-	c.house.Skip(true)
-	/*
-	   house.VoteSkip = append(house.VoteSkip, request.User)
+	if voted {
+		if c.IsHTTP() {
+			writeJSON(c.hw, http.StatusBadRequest, base.H{"error": "您已经投过票了"})
+		}
+		return
+	}
 
-	   // 如果有超过3个不同用户投票就切歌
-	   if len(house.VoteSkip) >= 3 {
-	       if len(house.Playlist) > 0 {
-	           house.Playlist = house.Playlist[1:]
-	       }
-	       house.VoteSkip = nil
-	       house.Mu.Unlock()
-	       c.JSON(http.StatusOK, base.H{"message": "歌曲已切换"})
-	       return
-	   }
+	voteCount := len(c.house.VoteSkip)
+	onlineUsers := len(c.house.Connection)
+	requiredVotes := (onlineUsers + 2) / 3 // 向上取整，至少需要三分之一的用户投票
 
-	   c.JSON(http.StatusOK, base.H{"message": "投票已记录", "current_votes": len(house.VoteSkip)})
-	*/
+	// 至少需要1票，最多不超过在线用户数
+	if requiredVotes < 1 {
+		requiredVotes = 1
+	}
+	if requiredVotes > onlineUsers {
+		requiredVotes = onlineUsers
+	}
+
+	// 如果票数达到要求，直接切歌
+	if voteCount >= requiredVotes {
+		c.house.Skip(true)
+		c.house.VoteSkip = nil
+
+		if c.IsWebSocket() {
+			c.Chat("投票切歌成功")
+		}
+		if c.IsHTTP() {
+			c.Send(base.H{"current_votes": voteCount, "required_votes": requiredVotes})
+		}
+	} else {
+		if c.IsWebSocket() {
+			c.Chat(fmt.Sprintf("投票切歌 (%d/%d)", voteCount, requiredVotes))
+		}
+		if c.IsHTTP() {
+			c.Send(base.H{"current_votes": voteCount, "required_votes": requiredVotes})
+		}
+	}
 }
 
 func goodMusic(c *Context) {
@@ -248,8 +286,15 @@ func goodMusic(c *Context) {
 		}
 	})
 	if change {
-		c.Chat(fmt.Sprintf("%s 点赞%d", name, likes))
 		c.house.PushPlaylist()
+		if c.IsWebSocket() {
+			c.Chat(fmt.Sprintf("%s 点赞%d", name, likes))
+		}
+		if c.IsHTTP() {
+			c.Send(base.H{"name": name, "likes": likes})
+		}
+	} else if c.IsHTTP() {
+		writeJSON(c.hw, http.StatusNotFound, base.H{"error": "未找到对应音乐"})
 	}
 }
 
@@ -260,11 +305,20 @@ func searchList(c *Context) {
 		Page:     c.Get("pageIndex").Int(),
 		PageSize: c.Get("pageSize").Int(),
 	})
-	c.conn.Send(base.H{
-		"type":      "searchlist",
-		"data":      r.Data,
-		"totalSize": r.Total,
-	})
+
+	if c.IsWebSocket() {
+		c.conn.Send(base.H{
+			"type":      "searchlist",
+			"data":      r.Data,
+			"totalSize": r.Total,
+		})
+	}
+	if c.IsHTTP() {
+		c.Send(base.H{
+			"list":      r.Data,
+			"totalSize": r.Total,
+		})
+	}
 }
 
 func playMode(c *Context) {
@@ -277,6 +331,10 @@ func playMode(c *Context) {
 			house.Mode = RandomMode
 		}
 	})
+
+	if c.IsHTTP() {
+		c.Send(base.H{"mode": mode})
+	}
 }
 
 func getCurrentMusic(c *Context) {
@@ -287,7 +345,54 @@ func getCurrentMusic(c *Context) {
 			r := merge(m, base.H{
 				"pushTime": h.PushTime,
 			})
-			c.conn.Send(r)
+
+			if c.IsWebSocket() {
+				c.conn.Send(r)
+			}
+			if c.IsHTTP() {
+				// ensure user who picked the song is included in HTTP response
+				// r already merged music fields and pushTime; add user if available
+				r["user"] = h.Current.user
+				c.Send(r)
+			}
+		} else if c.IsHTTP() {
+			writeJSON(c.hw, http.StatusNotFound, base.H{"error": "当前没有播放音乐"})
 		}
 	})
+}
+
+func getPlaylist(c *Context) {
+	// build playlist response
+	type item struct {
+		Name   string    `json:"name"`
+		Source string    `json:"source"`
+		ID     string    `json:"id"`
+		Likes  int       `json:"likes"`
+		User   auth.User `json:"user"`
+	}
+
+	var list []item
+	c.WithHouse(func(house *House) {
+		for _, o := range house.Playlist {
+			m := music.GetMusic(o.source, o.id, true)
+			name, _ := m["name"].(string)
+			list = append(list, item{
+				Name:   name,
+				Source: o.source,
+				ID:     o.id,
+				Likes:  o.likes,
+				User:   o.user,
+			})
+		}
+	})
+
+	if c.IsWebSocket() {
+		c.conn.Send(base.H{
+			"type": "playlist",
+			"data": list,
+		})
+	}
+	if c.IsHTTP() {
+		c.Send(base.H{"playlist": list})
+	}
 }
