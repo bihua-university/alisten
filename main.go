@@ -42,7 +42,16 @@ func main() {
 	mux.HandleFunc("/house/add", addHouseHTTP)
 	mux.HandleFunc("/house/enter", enterHouseHTTP)
 	mux.HandleFunc("/house/search", searchHousesHTTP)
+	mux.HandleFunc("POST /house/houseuser", wrapWebsocket(houseuser))
+	mux.HandleFunc("POST /music/playlist", wrapWebsocket(getPlaylist))
+	mux.HandleFunc("POST /music/sync", wrapWebsocket(getCurrentMusic))
 	mux.HandleFunc("POST /music/pick", wrapWebsocket(pickMusic))
+	mux.HandleFunc("POST /music/delete", wrapWebsocket(deleteMusic))
+	mux.HandleFunc("POST /music/good", wrapWebsocket(goodMusic))
+	mux.HandleFunc("POST /music/skip/vote", wrapWebsocket(voteSkip))
+	mux.HandleFunc("POST /music/search", wrapWebsocket(searchMusic))
+	mux.HandleFunc("POST /music/searchsonglist", wrapWebsocket(searchList))
+	mux.HandleFunc("POST /music/playmode", wrapWebsocket(playMode))
 
 	// task long-polling
 	mux.HandleFunc("GET /tasks/poll", scheduler.PollTaskHandler)
@@ -154,6 +163,7 @@ var route = map[string]func(ctx *Context){
 	"/music/searchsonglist": searchList,
 	"/music/playmode":       playMode,
 	"/music/sync":           getCurrentMusic,
+	"/music/playlist":       getPlaylist,
 	"/house/houseuser":      houseuser,
 }
 

@@ -71,7 +71,7 @@ func addHouseHTTP(w http.ResponseWriter, r *http.Request) {
 
 	houseID := uuid.New().String()
 	createHouse(houseID, requestBody.Name, requestBody.Desc, requestBody.Password, false)
-	writeJSON(w, http.StatusOK, base.H{"code": "20000", "message": "房间创建成功", "data": houseID})
+	writeJSON(w, http.StatusOK, base.H{"houseId": houseID})
 }
 
 func createHouse(houseID string, name, desc, password string, persist bool) {
@@ -122,7 +122,7 @@ func enterHouseHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
 		return
 	}
-	writeJSON(w, http.StatusOK, base.H{"code": "20000", "message": "进入房间成功", "data": request.HouseID})
+	writeJSON(w, http.StatusOK, base.H{"houseId": request.HouseID})
 }
 
 func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +143,7 @@ func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	housesMu.Unlock()
 
-	writeJSON(w, http.StatusOK, base.H{"code": "20000", "message": "房间列表", "data": response})
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *House) lock(fn func()) {
@@ -349,10 +349,16 @@ func houseuser(c *Context) {
 			u = append(u, conn.user)
 		}
 	})
-	c.conn.Send(base.H{
-		"type": "house_user",
-		"data": u,
-	})
+
+	if c.IsWebSocket() {
+		c.conn.Send(base.H{
+			"type": "house_user",
+			"data": u,
+		})
+	}
+	if c.IsHTTP() {
+		c.Send(u)
+	}
 }
 
 func settingSync(c *Context) {
