@@ -343,7 +343,8 @@ func (h *House) Leave(c *Connection) {
 }
 
 func houseuser(c *Context) {
-	var u []auth.User
+	// 初始化为非 nil 的空切片，确保通过 HTTP 返回时为 [] 而不是 null
+	u := make([]auth.User, 0)
 	c.WithHouse(func(h *House) {
 		for _, conn := range h.Connection {
 			u = append(u, conn.user)
