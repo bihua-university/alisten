@@ -130,13 +130,20 @@ func getQQMusic(id string) H {
 		rid = strings.TrimPrefix(resp.Abslist[0].MUSICRID, "MUSIC_")
 	}
 
-	download := Get("https://mobi.kuwo.cn/mobi.s", url.Values{
-		"f":      []string{"web"},
-		"source": []string{"kwplayer_ar_4.4.2.7_B_nuoweida_vh.apk"},
-		"format": []string{"mp3"},
-		"br":     []string{"2000kflac"},
-		"type":   []string{"convert_url_with_sign"},
-		"rid":    []string{rid},
+	/*
+		download := Get("https://mobi.kuwo.cn/mobi.s", url.Values{
+			"f":      []string{"web"},
+			"source": []string{"kwplayer_ar_4.4.2.7_B_nuoweida_vh.apk"},
+			"format": []string{"mp3"},
+			"br":     []string{"2000kflac"},
+			"type":   []string{"convert_url_with_sign"},
+			"rid":    []string{rid},
+		})
+	*/
+
+	download := Get("https://api.limeasy.cn/kwmpro/v1/", url.Values{
+		"id":      []string{rid},
+		"quality": []string{"exhigh"},
 	})
 
 	ablumMid := detail.Get("album.mid").String()
@@ -144,10 +151,10 @@ func getQQMusic(id string) H {
 
 	h := H{
 		"type":       "music",
-		"url":        download.Get("data.url").String(),
+		"url":        download.Get("url").String(),
 		"webUrl":     GenerateWebURL("qq", id),
 		"pictureUrl": picture,
-		"duration":   download.Get("data.duration").Int() * 1000,
+		"duration":   download.Get("duration").Int() * 1000,
 		"source":     "qq",
 		"lyric":      lyric.Get("data.lyric").String(),
 		"artist":     artist,
