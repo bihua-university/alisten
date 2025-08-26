@@ -38,6 +38,13 @@ func NewClient(serverURL, token string) *Client {
 	}
 }
 
+func (c *Client) setHeader(req *http.Request) {
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	req.Header.Set("Music-Let-Version", "v0.0.1")
+}
+
 // GetTask 通过长轮询获取任务
 func (c *Client) GetTask(ctx context.Context) (*Task, error) {
 	url := fmt.Sprintf("%s/tasks/poll?timeout=%d", c.ServerURL, int(c.PollTimeout.Seconds()))
@@ -46,10 +53,7 @@ func (c *Client) GetTask(ctx context.Context) (*Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
-
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.setHeader(req)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -91,11 +95,8 @@ func (c *Client) SubmitResult(result *Result) error {
 		return fmt.Errorf("创建请求失败: %w", err)
 	}
 
+	c.setHeader(req)
 	req.Header.Set("Content-Type", "application/json")
-	// 添加鉴权头
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bihua-university/alisten/internal/semver"
 	"github.com/bihua-university/alisten/internal/syncx"
 )
 
@@ -19,6 +20,8 @@ type Server struct {
 	results sync.Map      // map[string]chan *Result
 	idGen   atomic.Uint64 // 原子计数器，用于生成唯一ID
 }
+
+var minAllowedVersion = semver.Parse("v0.0.1")
 
 // NewServer 创建新的任务服务器
 func NewServer(token string) *Server {
@@ -59,7 +62,30 @@ func (s *Server) Call(task *Task, timeout time.Duration) *Result {
 	}
 }
 
-// validateToken 验证Token
+func (s *Server) precheck(r *http.Request, w http.ResponseWriter) bool {
+	// 验证Token
+	if !s.validateToken(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "未授权"})
+		return false
+	}
+
+	version := semver.Parse(r.Header.Get("Music-Let-Version"))
+	// 检查版本是否支持
+	if !version.GreaterEqual(minAllowedVersion) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUpgradeRequired) // 426 状态码表示需要升级
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":       "客户端版本过低",
+			"min_version": minAllowedVersion.String(),
+		})
+		return false
+	}
+
+	return true
+}
+
 func (s *Server) validateToken(r *http.Request) bool {
 	if s.token == "" {
 		return true // 如果没有设置token，则不验证
@@ -81,11 +107,7 @@ func (s *Server) validateToken(r *http.Request) bool {
 
 // PollTaskHandler 长轮询获取任务的处理器
 func (s *Server) PollTaskHandler(w http.ResponseWriter, r *http.Request) {
-	// 验证Token
-	if !s.validateToken(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "未授权"})
+	if !s.precheck(r, w) {
 		return
 	}
 
@@ -114,11 +136,7 @@ func (s *Server) PollTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 // SubmitResultHandler 提交任务结果的处理器
 func (s *Server) SubmitResultHandler(w http.ResponseWriter, r *http.Request) {
-	// 验证Token
-	if !s.validateToken(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "未授权"})
+	if !s.precheck(r, w) {
 		return
 	}
 
