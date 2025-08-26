@@ -39,23 +39,13 @@ func (s Source) String() string {
 }
 
 type Music struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Artist    string    `json:"artist"`
-	Album     Album     `json:"album"`
-	Duration  int64     `json:"duration"`
-	Privilege Privilege `json:"privilege"`
-	Cover     string    `json:"cover"`
-	Source    Source    `json:"source"` // qq/163/kuwo
-}
-
-type Album struct {
-	Name string `json:"name"`
-}
-
-type Privilege struct {
-	St int `json:"st"`
-	Fl int `json:"fl"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Artist   string `json:"artist"`
+	Album    string `json:"album"`
+	Duration int64  `json:"duration"`
+	Cover    string `json:"cover"`
+	Source   Source `json:"source"` // qq/163/kuwo
 }
 
 type Playlist struct {

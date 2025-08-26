@@ -29,18 +29,12 @@ func SearchMusic(o SearchOption) SearchResult[Music] {
 		var data []*Music
 		for _, m := range ms {
 			data = append(data, &Music{
-				ID:     m.MusicID,
-				Name:   m.Name,
-				Artist: m.Artist,
-				Album: Album{
-					Name: m.AlbumName,
-				},
+				ID:       m.MusicID,
+				Name:     m.Name,
+				Artist:   m.Artist,
+				Album:    m.AlbumName,
 				Duration: m.Duration,
-				Privilege: Privilege{
-					St: 1,
-					Fl: 1,
-				},
-				Source: NeteaseSong,
+				Source:   NeteaseSong,
 			})
 		}
 		return SearchResult[Music]{

@@ -89,13 +89,9 @@ func GetNeteaseMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 			ID:       item.Get("id").String(),
 			Name:     item.Get("name").String(),
 			Artist:   artist,
-			Album:    Album{Name: item.Get("al.name").String()},
+			Album:    item.Get("al.name").String(),
 			Duration: item.Get("dt").Int(),
-			Privilege: Privilege{
-				St: 1,
-				Fl: 1,
-			},
-			Cover: item.Get("al.picUrl").String(),
+			Cover:    item.Get("al.picUrl").String(),
 		}
 		res = append(res, m)
 		return true
@@ -202,10 +198,8 @@ func getNeteaseMusic(id string) H {
 		"lyric":      lyric.Get("lrc.lyric").String(),
 		"artist":     artist,
 		"name":       detail.Get("name").String(),
-		"album": H{
-			"name": detail.Get("al.name").String(),
-		},
-		"id": id,
+		"album":      detail.Get("al.name").String(),
+		"id":         id,
 	}
 
 	return h

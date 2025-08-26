@@ -158,9 +158,7 @@ func ConvertToGinH(music *MusicModel) base.H {
 		"lyric":      music.Lyric,
 		"artist":     music.Artist,
 		"name":       music.Name,
-		"album": base.H{
-			"name": music.AlbumName,
-		},
-		"playCount": music.PlayCount,
+		"album":      music.AlbumName,
+		"playCount":  music.PlayCount,
 	}
 }

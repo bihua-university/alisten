@@ -92,13 +92,9 @@ func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 			ID:       item.Get("songmid").String(),
 			Name:     item.Get("songname").String(),
 			Artist:   artist,
-			Album:    Album{Name: item.Get("albumname").String()},
+			Album:    item.Get("albumname").String(),
 			Duration: item.Get("interval").Int() * 1000,
-			Privilege: Privilege{
-				St: 1,
-				Fl: 1,
-			},
-			Cover: picture,
+			Cover:    picture,
 		}
 		res = append(res, m)
 		return true
@@ -159,10 +155,8 @@ func getQQMusic(id string) H {
 		"lyric":      lyric.Get("data.lyric").String(),
 		"artist":     artist,
 		"name":       name,
-		"album": H{
-			"name": detail.Get("album.name").String(),
-		},
-		"id": id,
+		"album":      detail.Get("album.name").String(),
+		"id":         id,
 	}
 
 	return h
