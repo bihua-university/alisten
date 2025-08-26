@@ -334,6 +334,9 @@ func (h *House) Leave(c *Connection) {
 		for _, conn := range h.Connection {
 			u = append(u, conn.user)
 		}
+
+		// free
+		close(c.send.In())
 	})
 	// 广播更新后的用户列表
 	h.Broadcast(base.H{
@@ -380,6 +383,7 @@ func (h *House) closeHouse() {
 	housesMu.Lock()
 	for id, house := range houses {
 		if house == h {
+			close(h.queue.In())
 			close(h.close)
 			delete(houses, id)
 			break
