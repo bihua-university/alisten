@@ -32,8 +32,8 @@ func setUser(c *Context) {
 	c.conn.mu.Lock()
 	defer c.conn.mu.Unlock()
 	delay := c.Get("sendTime").Int() - time.Now().UnixMilli()
-	c.conn.user.Name = c.data.Get("name").String()
-	c.conn.user.Email = c.data.Get("email").String()
+	c.conn.user.Name = c.Get("name").String()
+	c.conn.user.Email = c.Get("email").String()
 	if c.conn.user.Email == "" {
 		c.conn.user.Name = c.conn.user.Name + "(" + c.conn.ip + ")"
 	}

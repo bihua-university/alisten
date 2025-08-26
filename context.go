@@ -39,14 +39,12 @@ func (c *Context) IsHTTP() bool {
 
 func (c *Context) User() auth.User {
 	if c.IsWebSocket() {
-		c.conn.mu.Lock()
-		defer c.conn.mu.Unlock()
-		return c.conn.user
+		return c.conn.GetUser()
 	}
 	if c.IsHTTP() {
 		u := auth.User{
-			Name:  c.data.Get("user.name").String(),
-			Email: c.data.Get("user.email").String(),
+			Name:  c.Get("user.name").String(),
+			Email: c.Get("user.email").String(),
 		}
 		return u
 	}

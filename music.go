@@ -210,11 +210,13 @@ func merge(h1, h2 base.H) base.H {
 
 func voteSkip(c *Context) {
 	voted := false
+	requiredVotes := 0
+	voteCount := 0
 	c.WithHouse(func(house *House) {
 		// 检查用户是否已投票
 		user := c.User()
 		for _, existingUser := range house.VoteSkip {
-			if existingUser.Name == user.Name && existingUser.Email == user.Email {
+			if user == existingUser {
 				voted = true
 				return
 			}
@@ -223,6 +225,10 @@ func voteSkip(c *Context) {
 		if !voted {
 			house.VoteSkip = append(house.VoteSkip, user)
 		}
+
+		// 向上取整，至少需要三分之一的用户投票
+		requiredVotes = max((len(house.Connection)+2)/3, 1)
+		voteCount = len(c.house.VoteSkip)
 	})
 
 	if voted {
@@ -232,23 +238,9 @@ func voteSkip(c *Context) {
 		return
 	}
 
-	voteCount := len(c.house.VoteSkip)
-	onlineUsers := len(c.house.Connection)
-	requiredVotes := (onlineUsers + 2) / 3 // 向上取整，至少需要三分之一的用户投票
-
-	// 至少需要1票，最多不超过在线用户数
-	if requiredVotes < 1 {
-		requiredVotes = 1
-	}
-	if requiredVotes > onlineUsers {
-		requiredVotes = onlineUsers
-	}
-
 	// 如果票数达到要求，直接切歌
 	if voteCount >= requiredVotes {
 		c.house.Skip(true)
-		c.house.VoteSkip = nil
-
 		if c.IsWebSocket() {
 			c.Chat("投票切歌成功")
 		}

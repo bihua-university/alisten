@@ -308,6 +308,7 @@ func (h *House) Skip(force bool) {
 			// nothing
 		}
 		play = h.Current
+		h.VoteSkip = nil
 		change = true
 	})
 	if change {
