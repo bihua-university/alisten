@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -36,7 +38,8 @@ func main() {
 	mux := http.NewServeMux()
 
 	// 添加CORS中间件
-	handler := corsMiddleware(mux)
+	handler := logMiddleware(mux)
+	handler = corsMiddleware(handler)
 
 	// 房间相关路由
 	mux.HandleFunc("/house/add", addHouseHTTP)
@@ -58,14 +61,6 @@ func main() {
 	mux.HandleFunc("POST /tasks/result", scheduler.SubmitResultHandler)
 
 	mux.HandleFunc("/server", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "token,content-type,accesstoken")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
 		houseId := r.URL.Query().Get("houseId")
 		password := r.URL.Query().Get("housePwd")
 
@@ -177,6 +172,40 @@ func corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+type logResponseWriter struct {
+	w http.ResponseWriter
+	r *http.Request
+}
+
+func (l *logResponseWriter) Header() http.Header {
+	return l.w.Header()
+}
+
+func (l *logResponseWriter) Write(b []byte) (int, error) {
+	return l.w.Write(b)
+}
+
+func (l *logResponseWriter) WriteHeader(statusCode int) {
+	t := time.Now().Format(time.DateTime)
+	fmt.Printf("[%s] %s \"%s %s\" %d\n", t, l.r.RemoteAddr, l.r.Method, l.r.URL.Path, statusCode)
+	l.w.WriteHeader(statusCode)
+}
+
+func (l *logResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := l.w.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer is not a hijacker")
+	}
+	return hj.Hijack()
+}
+
+func logMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lrw := &logResponseWriter{w: w, r: r}
+		next.ServeHTTP(lrw, r)
 	})
 }
 
