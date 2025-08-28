@@ -2,17 +2,18 @@ package bilibili
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/imroc/req/v3"
 	"github.com/qiniu/go-sdk/v7/storagev2/credentials"
 	"github.com/qiniu/go-sdk/v7/storagev2/http_client"
 	"github.com/qiniu/go-sdk/v7/storagev2/uploader"
@@ -202,30 +203,70 @@ func webInterfaceView(bvid string) (webInterfaceViewRespData *Response[WebInterf
 }
 
 func ReqGet[T WebInterfaceViewRespData | VideoPlayRespData](reqUrl string, params map[string]interface{}) (videoRespData *Response[T]) {
-	client := req.C().
-		SetTimeout(5 * time.Second)
+	// 构建URL查询参数
+	u, err := url.Parse(reqUrl)
+	if err != nil {
+		log.Printf("解析URL失败: %v", err)
+		return nil
+	}
 
-	var errMsg Resp
-	resp, err := client.R().
-		SetQueryParamsAnyType(params).
-		SetSuccessResult(&videoRespData). // Unmarshal response body into userInfo automatically if status code is between 200 and 299.
-		SetErrorResult(&errMsg).          // Unmarshal response body into errMsg automatically if status code >= 400.
-		EnableDump().                     // Enable dump at request level, only print dump content if there is an error or some unknown situation occurs to help troubleshoot.
-		Get(reqUrl)
-	if err != nil { // Error handling.
-		log.Println("error:", err)
-		log.Println("raw content:")
-		log.Println(resp.Dump()) // Record raw content when error occurs.
-		return
+	query := u.Query()
+	for key, value := range params {
+		query.Set(key, fmt.Sprintf("%v", value))
 	}
-	if resp.IsErrorState() { // Status code >= 400.
-		fmt.Println(errMsg.Message) // Record error message returned.
-		return
+	u.RawQuery = query.Encode()
+
+	// 创建HTTP客户端
+	client := &http.Client{
+		Timeout: 5 * time.Second,
 	}
-	if resp.IsSuccessState() { // Status code is between 200 and 299.
-		return
+
+	// 创建HTTP请求
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		log.Printf("创建请求失败: %v", err)
+		return nil
 	}
-	return
+
+	// 设置请求头
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36")
+	req.Header.Set("Accept", "application/json")
+
+	// 发送请求
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("请求失败: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	// 读取响应体
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("读取响应失败: %v", err)
+		return nil
+	}
+
+	// 检查HTTP状态码
+	if resp.StatusCode >= 400 {
+		var errMsg Resp
+		if err := json.Unmarshal(body, &errMsg); err == nil {
+			log.Printf("API错误: %s", errMsg.Message)
+		} else {
+			log.Printf("HTTP错误: %d", resp.StatusCode)
+		}
+		return nil
+	}
+
+	// 解析JSON响应
+	videoRespData = new(Response[T])
+	if err := json.Unmarshal(body, videoRespData); err != nil {
+		log.Printf("解析JSON失败: %v", err)
+		log.Printf("响应内容: %s", string(body))
+		return nil
+	}
+
+	return videoRespData
 }
 
 func setDefaultHeaders(req *http.Request, bvId string) {

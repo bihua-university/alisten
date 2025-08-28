@@ -21,7 +21,7 @@ type Config struct {
 // loadConfig 读取配置文件
 func loadConfig(configPath string) (*Config, error) {
 	log.Printf("尝试读取配置文件: %s", configPath)
-	
+
 	file, err := os.Open(configPath)
 	if err != nil {
 		log.Printf("无法打开配置文件 %s: %v", configPath, err)
@@ -37,14 +37,14 @@ func loadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %v", err)
 	}
 
-	log.Printf("配置文件解析成功: ServerURL=%s, Token长度=%d", 
+	log.Printf("配置文件解析成功: ServerURL=%s, Token长度=%d",
 		config.ServerURL, len(config.Token))
 	return &config, nil
 }
 
 func main() {
 	log.Println("=== Musiclet 启动 ===")
-	
+
 	// 读取配置文件
 	log.Println("正在读取配置文件...")
 	config, err := loadConfig("config.json")
@@ -52,7 +52,7 @@ func main() {
 		log.Fatalf("配置文件读取失败: %v", err)
 	}
 	log.Printf("配置文件读取成功，服务器地址: %s", config.ServerURL)
-	
+
 	// init bilibili config
 	bilibili.Config.QiniuAK = config.QiniuAK
 	bilibili.Config.QiniuSK = config.QiniuSK
@@ -66,7 +66,7 @@ func main() {
 
 	log.Println("开始任务循环...")
 	taskCount := 0
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -101,8 +101,14 @@ func main() {
 }
 
 func processTask(t *task.Task) *task.Result {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("任务处理异常: %v", r)
+		}
+	}()
+
 	log.Printf("开始处理任务: ID=%s, Type=%s", t.ID, t.Type)
-	
+
 	result := &task.Result{
 		ID: t.ID,
 	}
