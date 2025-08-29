@@ -10,10 +10,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/bihua-university/alisten/cmd/musiclet/bihua"
 	"github.com/qiniu/go-sdk/v7/storagev2/credentials"
 	"github.com/qiniu/go-sdk/v7/storagev2/http_client"
 	"github.com/qiniu/go-sdk/v7/storagev2/uploader"
@@ -33,7 +33,7 @@ type ctxt struct {
 }
 
 // ProcessUpload 处理B站视频上传任务
-func ProcessUpload(bvId string) (map[string]string, error) {
+func ProcessUpload(bvId string) (*bihua.MusicModel, error) {
 	c := ctxt{bvId: bvId}
 
 	// 保存路径
@@ -62,14 +62,14 @@ func ProcessUpload(bvId string) (map[string]string, error) {
 		return nil, fmt.Errorf("上传音频失败: %v", err)
 	}
 
-	res := map[string]string{
-		"id":       bvId,
-		"name":     c.title,
-		"artist":   c.owner,
-		"album":    bvId,
-		"picture":  photo,
-		"duration": strconv.Itoa(c.duration),
-		"audio":    audio,
+	res := &bihua.MusicModel{
+		MusicID:    bvId,
+		Name:       c.title,
+		Artist:     c.owner,
+		AlbumName:  bvId,
+		PictureURL: photo,
+		Duration:   int64(c.duration),
+		URL:        audio,
 	}
 	return res, nil
 }

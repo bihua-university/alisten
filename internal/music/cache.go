@@ -4,8 +4,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/music/bihua"
+	"github.com/bihua-university/alisten/internal/task"
 )
 
 type H = map[string]any
@@ -27,11 +28,23 @@ func GetMusic(source, id string, useCache bool) H {
 	case "qq":
 		h = getQQMusic(id)
 	case "db":
-		m, err := bihua.GetMusicByID(id)
-		if err != nil {
-			return h
+		t := task.Scheduler.NewTask("bilibili:get_music", map[string]string{"bvid": id})
+		r := task.Scheduler.Call(t, 1*time.Minute)
+		if r != nil && r.Result != nil {
+			rg := gjson.ParseBytes(r.Result)
+			h = H{
+				"type":       rg.Get("type").String(),
+				"url":        rg.Get("url").String(),
+				"id":         id,
+				"webUrl":     rg.Get("webUrl").String(),
+				"pictureUrl": rg.Get("pictureUrl").String(),
+				"duration":   rg.Get("duration").Int(),
+				"source":     "db",
+				"artist":     rg.Get("artist").String(),
+				"name":       rg.Get("name").String(),
+				"album":      rg.Get("al.name").String(),
+			}
 		}
-		h = bihua.ConvertToGinH(m)
 	}
 
 	cache.Add(key, h)

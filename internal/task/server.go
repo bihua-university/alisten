@@ -13,6 +13,8 @@ import (
 	"github.com/bihua-university/alisten/internal/syncx"
 )
 
+var Scheduler *Server // manual initialize
+
 // Server 长轮询任务服务器
 type Server struct {
 	token   string
@@ -21,7 +23,7 @@ type Server struct {
 	idGen   atomic.Uint64 // 原子计数器，用于生成唯一ID
 }
 
-var minAllowedVersion = semver.Parse("v0.0.1")
+var minAllowedVersion = semver.Parse("v0.0.2")
 
 // NewServer 创建新的任务服务器
 func NewServer(token string) *Server {
@@ -43,17 +45,17 @@ func (s *Server) NewTask(taskType string, data map[string]string) *Task {
 
 // Call 同步调用任务，添加任务并等待结果
 func (s *Server) Call(task *Task, timeout time.Duration) *Result {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return s.CallContext(ctx, task)
+}
+
+func (s *Server) CallContext(ctx context.Context, task *Task) *Result {
 	resultChan := make(chan *Result, 1)
 	s.results.Store(task.ID, resultChan)
+	defer s.results.Delete(task.ID)
 
 	s.tasks.In() <- task
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer func() {
-		cancel()
-		s.results.Delete(task.ID)
-	}()
-
 	select {
 	case result := <-resultChan:
 		return result
@@ -65,18 +67,15 @@ func (s *Server) Call(task *Task, timeout time.Duration) *Result {
 func (s *Server) precheck(r *http.Request, w http.ResponseWriter) bool {
 	// 验证Token
 	if !s.validateToken(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "未授权"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "未授权"})
 		return false
 	}
 
 	version := semver.Parse(r.Header.Get("Music-Let-Version"))
 	// 检查版本是否支持
 	if !version.GreaterEqual(minAllowedVersion) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUpgradeRequired) // 426 状态码表示需要升级
-		json.NewEncoder(w).Encode(map[string]string{
+		time.Sleep(15 * time.Second) // 等待15秒后再返回
+		writeJSON(w, http.StatusUpgradeRequired, map[string]string{
 			"error":       "客户端版本过低",
 			"min_version": minAllowedVersion.String(),
 		})
@@ -126,11 +125,10 @@ func (s *Server) PollTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case task := <-s.tasks.Out():
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(task)
+		writeJSON(w, http.StatusOK, task)
 	case <-ctx.Done():
 		// 超时，返回空内容
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, http.StatusNoContent, nil)
 	}
 }
 
@@ -142,9 +140,7 @@ func (s *Server) SubmitResultHandler(w http.ResponseWriter, r *http.Request) {
 
 	var result Result
 	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "无效的JSON格式"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无效的JSON格式"})
 		return
 	}
 
@@ -152,13 +148,15 @@ func (s *Server) SubmitResultHandler(w http.ResponseWriter, r *http.Request) {
 	if chanInterface, ok := s.results.Load(result.ID); ok {
 		if resultChan, ok := chanInterface.(chan *Result); ok {
 			resultChan <- &result
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"message": "结果已接收"})
+			writeJSON(w, http.StatusOK, map[string]string{"message": "结果已接收"})
 			return
 		}
 	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "未找到对应的任务"})
+}
 
+func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]string{"error": "未找到对应的任务"})
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
 }

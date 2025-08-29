@@ -9,9 +9,7 @@ const (
 	PlayerPlayUrl    = "https://api.bilibili.com/x/player/playurl"
 )
 
-var (
-	SessionData = ""
-)
+var SessionData = ""
 
 type Resp struct {
 	Code    int    `json:"code"`

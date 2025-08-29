@@ -42,7 +42,7 @@ func (c *Client) setHeader(req *http.Request) {
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	req.Header.Set("Music-Let-Version", "v0.0.1")
+	req.Header.Set("Music-Let-Version", "v0.0.2")
 }
 
 // GetTask 通过长轮询获取任务

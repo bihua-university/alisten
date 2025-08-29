@@ -14,7 +14,6 @@ import (
 
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
-	"github.com/bihua-university/alisten/internal/music/bihua"
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
 
@@ -26,13 +25,10 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 } // use default options
 
-var scheduler *task.Server // manual initialize
-
 func main() {
 	base.InitConfig()
-	bihua.InitDB()
 
-	scheduler = task.NewServer(base.Config.Token) // 可以从配置文件读取token
+	task.Scheduler = task.NewServer(base.Config.Token) // 可以从配置文件读取token
 
 	// 创建HTTP multiplexer
 	mux := http.NewServeMux()
@@ -57,8 +53,8 @@ func main() {
 	mux.HandleFunc("POST /music/playmode", wrapWebsocket(playMode))
 
 	// task long-polling
-	mux.HandleFunc("GET /tasks/poll", scheduler.PollTaskHandler)
-	mux.HandleFunc("POST /tasks/result", scheduler.SubmitResultHandler)
+	mux.HandleFunc("GET /tasks/poll", task.Scheduler.PollTaskHandler)
+	mux.HandleFunc("POST /tasks/result", task.Scheduler.SubmitResultHandler)
 
 	mux.HandleFunc("/server", func(w http.ResponseWriter, r *http.Request) {
 		houseId := r.URL.Query().Get("houseId")

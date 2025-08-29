@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
+	"github.com/bihua-university/alisten/cmd/musiclet/bihua"
 	"github.com/bihua-university/alisten/cmd/musiclet/bilibili"
+	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/task"
 )
 
@@ -16,6 +19,7 @@ type Config struct {
 	Token     string `json:"token"`
 	QiniuAK   string `json:"qiniu_ak"`
 	QiniuSK   string `json:"qiniu_sk"`
+	Pgsql     string `json:"pgsql"`
 }
 
 // loadConfig 读取配置文件
@@ -57,6 +61,9 @@ func main() {
 	bilibili.Config.QiniuAK = config.QiniuAK
 	bilibili.Config.QiniuSK = config.QiniuSK
 	log.Println("Bilibili 配置初始化完成")
+
+	bihua.InitDB(config.Pgsql)
+	log.Println("数据库初始化完成")
 
 	client := task.NewClient(config.ServerURL, config.Token)
 	log.Println("任务客户端创建完成")
@@ -114,8 +121,7 @@ func processTask(t *task.Task) *task.Result {
 	}
 
 	switch t.Type {
-	case "bilibili_upload":
-		log.Printf("处理 Bilibili 上传任务: %s", t.ID)
+	case "bilibili:get_music":
 		bvId, ok := t.Data["bvid"]
 		if !ok {
 			log.Printf("任务 %s 缺少 bvid 参数", t.ID)
@@ -123,17 +129,35 @@ func processTask(t *task.Task) *task.Result {
 			result.Error = "缺少bvid参数"
 		} else {
 			log.Printf("开始处理 Bilibili 视频: %s", bvId)
-			res, err := bilibili.ProcessUpload(bvId)
+			m, err := bihua.GetMusicByID(bvId)
 			if err != nil {
-				result.Success = false
-				result.Error = fmt.Sprintf("bilibili上传失败: %v", err)
-				log.Printf("Bilibili 上传失败 (任务 %s, BV %s): %v", t.ID, bvId, err)
-			} else {
-				result.Result = res
-				result.Success = true
-				log.Printf("Bilibili 上传成功 (任务 %s, BV %s)", t.ID, bvId)
+				m, err = bilibili.ProcessUpload(bvId)
+				if err != nil {
+					result.Success = false
+					result.Error = fmt.Sprintf("bilibili上传失败: %v", err)
+					log.Printf("Bilibili 上传失败 (任务 %s, BV %s): %v", t.ID, bvId, err)
+					break
+				}
+				bihua.InsertMusic(m)
 			}
+			result.Success = true
+			result.Result = marshal(bihua.ConvertToMap(m))
 		}
+
+	case "bilibili:search_music":
+		keyword, page, pageSize := t.Data["keyword"], toInt64(t.Data["page"]), toInt64(t.Data["pageSize"])
+		list, total, error := bihua.SearchMusicByDB(keyword, page, pageSize)
+		if error != nil {
+			result.Success = false
+			result.Error = fmt.Sprintf("搜索音乐失败: %v", error)
+			log.Printf("搜索音乐失败 (任务 %s): %v", t.ID, error)
+			break
+		}
+		result.Success = true
+		result.Result = marshal(base.H{
+			"data":  bihua.ConvertMusicList(list),
+			"total": total,
+		})
 
 	default:
 		result.Success = false
@@ -142,5 +166,18 @@ func processTask(t *task.Task) *task.Result {
 	}
 
 	log.Printf("任务处理完成: ID=%s, Success=%t", result.ID, result.Success)
+	return result
+}
+
+func marshal(j any) json.RawMessage {
+	data, err := json.Marshal(j)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func toInt64(value string) int64 {
+	result, _ := strconv.ParseInt(value, 10, 64)
 	return result
 }

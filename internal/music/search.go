@@ -1,10 +1,12 @@
 package music
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"time"
 
-	"github.com/bihua-university/alisten/internal/music/bihua"
+	"github.com/bihua-university/alisten/internal/task"
 )
 
 func SearchMusic(o SearchOption) SearchResult[Music] {
@@ -21,25 +23,24 @@ func SearchMusic(o SearchOption) SearchResult[Music] {
 		})
 		return GetQQMusicResult(r.Get("data.list"), o)
 	case "db":
-		ms, i, err := bihua.SearchMusicByDB(o.Keyword, o.Page, o.PageSize)
-		if err != nil {
-			fmt.Println(err)
+		t := task.Scheduler.NewTask("bilibili:search_music", map[string]string{
+			"keyword":  o.Keyword,
+			"page":     fmt.Sprintf("%d", o.Page),
+			"pageSize": fmt.Sprintf("%d", o.PageSize),
+		})
+		r := task.Scheduler.Call(t, 1*time.Minute)
+		if r == nil || r.Result == nil {
 			return SearchResult[Music]{}
 		}
-		var data []*Music
-		for _, m := range ms {
-			data = append(data, &Music{
-				ID:       m.MusicID,
-				Name:     m.Name,
-				Artist:   m.Artist,
-				Album:    m.AlbumName,
-				Duration: m.Duration,
-				Source:   NeteaseSong,
-			})
+
+		var res struct {
+			Data  []*Music `json:"data"`
+			Total int      `json:"total"`
 		}
+		json.Unmarshal([]byte(r.Result), &res)
 		return SearchResult[Music]{
-			Total: i,
-			Data:  data,
+			Total: int64(res.Total),
+			Data:  res.Data,
 		}
 	}
 	return SearchResult[Music]{}

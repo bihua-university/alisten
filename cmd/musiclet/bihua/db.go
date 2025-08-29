@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/music"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -13,8 +13,7 @@ import (
 var DB *gorm.DB
 
 // InitDB initializes the database connection
-func InitDB() {
-	dsn := base.Config.Pgsql
+func InitDB(dsn string) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("Failed to connect to database")
@@ -27,40 +26,18 @@ func InitDB() {
 	}
 }
 
-// SaveNeteaseMusic saves the music data retrieved from Netease to the database
-func SaveNeteaseMusic(music base.H) error {
-	if DB == nil {
-		return nil // Database not initialized, skip saving
-	}
-
-	musicModel := MusicModel{
-		MusicID:    music["id"].(string),
-		Name:       music["name"].(string),
-		Artist:     music["artist"].(string),
-		AlbumName:  music["album"].(base.H)["name"].(string),
-		PictureURL: music["pictureUrl"].(string),
-		Duration:   music["duration"].(int64),
-		URL:        music["url"].(string),
-		Lyric:      music["lyric"].(string),
-	}
-
-	// Check if music already exists in database
-	var existingMusic MusicModel
-	result := DB.Where("music_id = ?", musicModel.MusicID).First(&existingMusic)
-
-	if result.Error == nil {
-		// Music exists, update the record
-		existingMusic.URL = musicModel.URL // Update URL as it might have changed
-		existingMusic.PictureURL = musicModel.PictureURL
-		existingMusic.Lyric = musicModel.Lyric
-		return DB.Save(&existingMusic).Error
-	} else if result.Error == gorm.ErrRecordNotFound {
-		// Music doesn't exist, create new record
-		return DB.Create(&musicModel).Error
-	} else {
-		// Other database error
-		return result.Error
-	}
+// MusicModel represents the music data in the database
+type MusicModel struct {
+	gorm.Model
+	MusicID    string `gorm:"uniqueIndex;not null"`
+	Name       string `gorm:"index;not null"`
+	Artist     string `gorm:"index"`
+	AlbumName  string
+	PictureURL string
+	Duration   int64
+	URL        string
+	Lyric      string `gorm:"type:text"`
+	PlayCount  int    `gorm:"default:0"`
 }
 
 // InsertMusic inserts a single music record into the database
@@ -136,8 +113,8 @@ func SearchMusicByDB(keyword string, page, pageSize int64) ([]MusicModel, int64,
 	return musics, total, nil
 }
 
-// ConvertToGinH converts a MusicModel to the H format used by the API
-func ConvertToGinH(music *MusicModel) base.H {
+// ConvertToMap converts a MusicModel to a map format used by the API
+func ConvertToMap(music *MusicModel) map[string]string {
 	// 需要从外部导入 GenerateWebURL 函数
 	webUrl := ""
 	switch {
@@ -148,17 +125,32 @@ func ConvertToGinH(music *MusicModel) base.H {
 		}
 	}
 
-	return base.H{
+	return map[string]string{
 		"type":       "music",
 		"id":         music.MusicID,
 		"url":        music.URL,
 		"webUrl":     webUrl,
 		"pictureUrl": music.PictureURL,
-		"duration":   music.Duration,
+		"duration":   fmt.Sprintf("%d", music.Duration),
 		"lyric":      music.Lyric,
 		"artist":     music.Artist,
 		"name":       music.Name,
 		"album":      music.AlbumName,
-		"playCount":  music.PlayCount,
+		"playCount":  fmt.Sprintf("%d", music.PlayCount),
 	}
+}
+
+func ConvertMusicList(musics []MusicModel) []*music.Music {
+	var result []*music.Music
+	for _, m := range musics {
+		s := &music.Music{
+			ID:       m.MusicID,
+			Name:     m.Name,
+			Artist:   m.Artist,
+			Album:    m.AlbumName,
+			Duration: m.Duration,
+		}
+		result = append(result, s)
+	}
+	return result
 }
