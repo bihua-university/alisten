@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/bihua-university/alisten/internal/auth"
@@ -27,30 +28,38 @@ func (c *Context) Chat(msg string) {
 	}
 	c.house.Broadcast(h)
 }
-
 func setUser(c *Context) {
+	name := c.Get("name").String()
+	email := c.Get("email").String()
+	sendTime := c.Get("sendTime").Int()
+
+	delay := sendTime - time.Now().UnixMilli()
+
 	c.conn.mu.Lock()
-	defer c.conn.mu.Unlock()
-	delay := c.Get("sendTime").Int() - time.Now().UnixMilli()
-	c.conn.user.Name = c.Get("name").String()
-	c.conn.user.Email = c.Get("email").String()
-	if c.conn.user.Email == "" {
-		c.conn.user.Name = c.conn.user.Name + "(" + c.conn.ip + ")"
+	// 更新用户信息
+	if email != "" {
+		c.conn.user.Email = auth.EmailToMD5(email)
+		c.conn.user.Name = name
+	} else {
+		c.conn.user.Name = fmt.Sprintf("%s(%s)", name, c.conn.ip)
+		c.conn.user.Email = ""
 	}
+	c.conn.mu.Unlock()
+
 	c.conn.Send(base.H{
 		"type":  "delay",
 		"delay": delay,
 	})
-
 	// 推送更新后的用户列表
-	var u []auth.User
+	var users []auth.User
 	c.WithHouse(func(h *House) {
 		for _, conn := range h.Connection {
-			u = append(u, conn.user)
+			users = append(users, conn.user)
 		}
 	})
+
 	c.house.Broadcast(base.H{
 		"type": "house_user",
-		"data": u,
+		"data": users,
 	})
 }
