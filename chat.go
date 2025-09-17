@@ -28,6 +28,15 @@ func (c *Context) Chat(msg string) {
 	}
 	c.house.Broadcast(h)
 }
+
+func (c *Context) Info(msg string) {
+	h := base.H{
+		"type": "info/push",
+		"info": msg,
+	}
+	c.conn.Send(h)
+}
+
 func setUser(c *Context) {
 	name := c.Get("name").String()
 	email := c.Get("email").String()

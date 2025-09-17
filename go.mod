@@ -1,6 +1,6 @@
 module github.com/bihua-university/alisten
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/caddyserver/certmagic v0.25.0
@@ -9,6 +9,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/qiniu/go-sdk/v7 v7.25.3
 	github.com/tidwall/gjson v1.18.0
+	golang.org/x/time v0.13.0
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.26.1
 )

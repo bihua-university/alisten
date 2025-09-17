@@ -93,6 +93,7 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 }
 
 func searchMusic(c *Context) {
+	c.house.Wait(WaitSearch)
 	name := c.Get("name").String()
 	o := music.SearchOption{
 		Source:   c.Get("source").String(),
@@ -124,6 +125,10 @@ func searchMusic(c *Context) {
 }
 
 func deleteMusic(c *Context) {
+	if !c.house.Wait(WaitOrder) { // 与点歌共用
+		c.Info("操作过于频繁，请稍后再试")
+		return
+	}
 	name := c.Get("id").String()
 
 	deleted := false
@@ -152,6 +157,26 @@ func deleteMusic(c *Context) {
 }
 
 func pickMusic(c *Context) {
+	if !c.house.Wait(WaitOrder) {
+		c.Info("操作过于频繁，请稍后再试")
+		return
+	}
+
+	// 限制点歌数量
+	exceed := false
+	c.WithHouse(func(h *House) {
+		if h.ultimate {
+			return
+		}
+		if len(h.Playlist) >= 10 {
+			exceed = true
+		}
+	})
+	if exceed {
+		c.Info("已超过最大点歌数量10首,请稍后再试!")
+		return
+	}
+
 	id := c.Get("id").String()
 	name := c.Get("name").String()
 	source := c.Get("source").String()
@@ -237,6 +262,10 @@ func voteSkip(c *Context) {
 }
 
 func goodMusic(c *Context) {
+	if !c.house.Wait(WaitLike) {
+		c.Info("操作过于频繁，请稍后再试")
+		return
+	}
 	index := c.Get("index").Int()
 	name := c.Get("name").String()
 	if index == 0 {
@@ -270,6 +299,7 @@ func goodMusic(c *Context) {
 }
 
 func searchList(c *Context) {
+	c.house.Wait(WaitSearch)
 	r := music.SearchPlaylist(music.SearchOption{
 		Source:   c.Get("source").String(),
 		Keyword:  c.Get("name").String(),

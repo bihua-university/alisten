@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"math/rand/v2"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/bihua-university/alisten/internal/syncx"
 
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 )
 
 type Mode int
@@ -47,10 +49,15 @@ type House struct {
 	Connection []*Connection
 
 	// private
-	persist        bool
+	ultimate       bool
 	lastActiveTime time.Time
 	queue          syncx.UnboundedChan[[]byte]
 	close          chan struct{}
+
+	// limiters
+	searchLimiter *rate.Limiter
+	orderLimiter  *rate.Limiter
+	likeLimiter   *rate.Limiter
 }
 
 var housesMu sync.Mutex
@@ -83,10 +90,18 @@ func createHouse(houseID string, name, desc, password string, persist bool) {
 		Playlist: make([]Order, 0),
 		VoteSkip: make([]auth.User, 0),
 
-		persist:        persist,
+		ultimate:       persist,
 		lastActiveTime: time.Now(),
 		queue:          syncx.NewUnboundedChan[[]byte](8),
 		close:          make(chan struct{}),
+	}
+	if !house.ultimate {
+		house.searchLimiter = rate.NewLimiter(rate.Every(time.Minute), 10)
+		house.orderLimiter = rate.NewLimiter(rate.Every(time.Minute), 5)
+		house.likeLimiter = rate.NewLimiter(rate.Every(time.Minute), 5)
+	} else {
+		house.orderLimiter = rate.NewLimiter(rate.Every(time.Minute), 30)
+		house.likeLimiter = rate.NewLimiter(rate.Every(time.Minute), 30)
 	}
 	housesMu.Lock()
 	houses[houseID] = house
@@ -131,13 +146,13 @@ func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
 	for houseId, house := range houses {
 		house.Mu.Lock()
 		response = append(response, map[string]interface{}{
-			"id":           houseId,
-			"name":         house.Name,
-			"desc":         house.Desc,
-			"population":   len(house.Connection),
-			"createTime":   time.Now().UnixMilli(),
-			"needPwd":      house.Password != "",
-			"enableStatus": true,
+			"id":         houseId,
+			"name":       house.Name,
+			"desc":       house.Desc,
+			"population": len(house.Connection),
+			"createTime": time.Now().UnixMilli(),
+			"needPwd":    house.Password != "",
+			"ultimate":   house.ultimate,
 		})
 		house.Mu.Unlock()
 	}
@@ -186,7 +201,7 @@ func (h *House) Update() {
 			skip = true
 		}
 		// 检查是否需要清理房间
-		if len(h.Connection) == 0 && !h.persist && time.Since(h.lastActiveTime) > 5*time.Minute {
+		if len(h.Connection) == 0 && !h.ultimate && time.Since(h.lastActiveTime) > 5*time.Minute {
 			h.closeHouse()
 		}
 	})
@@ -391,4 +406,27 @@ func (h *House) closeHouse() {
 		}
 	}
 	housesMu.Unlock()
+}
+
+const (
+	WaitSearch = 1 << iota // 搜索
+	WaitOrder              // 点歌
+	WaitLike               // 点赞
+)
+
+func (h *House) Wait(t uint8) bool {
+	if t&WaitSearch != 0 && h.searchLimiter != nil {
+		h.searchLimiter.Wait(context.Background())
+	}
+	if t&WaitOrder != 0 && h.orderLimiter != nil {
+		if !h.orderLimiter.Allow() {
+			return false
+		}
+	}
+	if t&WaitLike != 0 && h.likeLimiter != nil {
+		if !h.likeLimiter.Allow() {
+			return false
+		}
+	}
+	return true
 }
