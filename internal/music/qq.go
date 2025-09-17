@@ -74,7 +74,7 @@ func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 	var res []*Music
 	r.ForEach(func(_, item gjson.Result) bool {
 		total++
-		if total < (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
+		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
 			return true
 		}
 
@@ -172,7 +172,7 @@ func SearchQQPlaylist(o SearchOption) SearchResult[Playlist] {
 	var res []*Playlist
 	r.Get("data.list").ForEach(func(_, item gjson.Result) bool {
 		total++
-		if total < (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
+		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
 			return true
 		}
 		creator := item.Get("creator")
@@ -201,7 +201,7 @@ func SearchQQUserPlaylist(o SearchOption) SearchResult[Playlist] {
 	var res []*Playlist
 	r.Get("data.list").ForEach(func(_, item gjson.Result) bool {
 		total++
-		if total < (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
+		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
 			return true
 		}
 		creator := item.Get("creator")

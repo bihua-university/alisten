@@ -72,7 +72,7 @@ func GetNeteaseMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 	var res []*Music
 	r.ForEach(func(_, item gjson.Result) bool {
 		total++
-		if total < (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
+		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
 			return true
 		}
 
@@ -109,7 +109,7 @@ func SearchNeteasePlaylist(o SearchOption) SearchResult[Playlist] {
 	var res []*Playlist
 	r.Get("result.playlists").ForEach(func(_, item gjson.Result) bool {
 		total++
-		if total < (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
+		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
 			return true
 		}
 		creator := item.Get("creator")
@@ -138,7 +138,7 @@ func SearchNeteaseUserPlaylist(o SearchOption) SearchResult[Playlist] {
 	var res []*Playlist
 	list.Get("playlist").ForEach(func(_, item gjson.Result) bool {
 		total++
-		if total < (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
+		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
 			return true
 		}
 		m := &Playlist{

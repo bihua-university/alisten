@@ -17,6 +17,7 @@ import (
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
 )
@@ -138,7 +139,7 @@ func main() {
 	if base.Config.Debug {
 		log.Fatal(http.ListenAndServe(":8080", handler))
 	} else {
-		log.Fatal(http.ListenAndServeTLS(":443", "certificate.crt", "private.key", handler))
+		certmagic.HTTPS([]string{base.Config.Addr}, handler)
 	}
 }
 
