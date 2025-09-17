@@ -42,9 +42,13 @@ func (c *Context) User() auth.User {
 		return c.conn.GetUser()
 	}
 	if c.IsHTTP() {
+		email := c.Get("user.email").String()
 		u := auth.User{
 			Name:  c.Get("user.name").String(),
-			Email: c.Get("user.email").String(),
+			Email: "",
+		}
+		if email != "" {
+			u.Email = auth.EmailToMD5(email)
 		}
 		return u
 	}
