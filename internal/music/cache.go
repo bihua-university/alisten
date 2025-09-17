@@ -15,7 +15,7 @@ var cache = expirable.NewLRU[string, H](256, nil, 30*time.Minute)
 
 func GetMusic(source, id string, useCache bool) H {
 	key := source + "OvO" + id
-	if useCache {
+	if useCache || source != "wy" { // 网易云链接有时效性，可以强制刷新
 		if v, ok := cache.Get(key); ok {
 			return v
 		}
