@@ -21,9 +21,18 @@ type QiniuConfig struct {
 	Domain string `json:"domain"`
 }
 
+type S3Config struct {
+	AccessKeyID     string `json:"access_key_id"`
+	SecretAccessKey string `json:"secret_access_key"`
+	Region          string `json:"region"`
+	Bucket          string `json:"bucket"`
+	EndpointURL     string `json:"endpoint_url"`
+}
+
 type StorageConfig struct {
 	Type  string      `json:"type"` // "qiniu" or "s3"
 	Qiniu QiniuConfig `json:"qiniu"`
+	S3    S3Config    `json:"s3"`
 }
 
 type Config struct {
@@ -78,6 +87,15 @@ func main() {
 			config.Storage.Qiniu.Domain,
 		)
 		log.Println("七牛云存储配置初始化完成")
+	case "s3":
+		bilibili.InitS3Config(
+			config.Storage.S3.AccessKeyID,
+			config.Storage.S3.SecretAccessKey,
+			config.Storage.S3.Region,
+			config.Storage.S3.Bucket,
+			config.Storage.S3.EndpointURL,
+		)
+		log.Println("S3存储配置初始化完成")
 	default:
 		log.Fatalf("不支持的存储类型: %s", config.Storage.Type)
 	}

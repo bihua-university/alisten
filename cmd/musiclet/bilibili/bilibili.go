@@ -26,6 +26,14 @@ var QiniuConfig struct {
 	Domain string
 }
 
+var S3Config struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	Region          string
+	Bucket          string
+	EndpointURL     string
+}
+
 type ctxt struct {
 	bvId     string
 	pic      string
@@ -39,6 +47,14 @@ func InitQiniuConfig(ak, sk, bucket, domain string) {
 	QiniuConfig.Sk = sk
 	QiniuConfig.Bucket = bucket
 	QiniuConfig.Domain = domain
+}
+
+func InitS3Config(accessKeyID, secretAccessKey, region, bucket, endpointURL string) {
+	S3Config.AccessKeyID = accessKeyID
+	S3Config.SecretAccessKey = secretAccessKey
+	S3Config.Region = region
+	S3Config.Bucket = bucket
+	S3Config.EndpointURL = endpointURL
 }
 
 // ProcessUpload 处理B站视频上传任务
