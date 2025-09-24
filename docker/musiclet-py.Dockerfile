@@ -24,12 +24,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Python 依赖
 COPY pyproject.toml uv.lock /app/
+COPY src /app/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project /app/
 
 # 将可执行文件放在环境的路径前面
 ENV PATH="/app/.venv/bin:$PATH"
-
-COPY src /app/src/
 
 CMD ["uv", "run", "--project", "/app/", "musiclet"]
