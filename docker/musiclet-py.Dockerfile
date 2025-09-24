@@ -2,6 +2,9 @@
 FROM python:3.13.5-slim
 COPY --from=ghcr.io/astral-sh/uv:0.8.8 /uv /bin/uv
 
+# 工作目录
+WORKDIR /app
+
 # 设置时区
 ENV TZ=Asia/Shanghai
 
@@ -26,9 +29,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 COPY pyproject.toml uv.lock /app/
 COPY src /app/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --project /app/
+    uv sync
 
 # 将可执行文件放在环境的路径前面
 ENV PATH="/app/.venv/bin:$PATH"
 
-CMD ["uv", "run", "--project", "/app/", "musiclet"]
+CMD ["uv", "run", "musiclet"]
