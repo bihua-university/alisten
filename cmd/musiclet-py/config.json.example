@@ -1,0 +1,15 @@
+{
+  "server_url": "https://your-server.com",
+  "token": "your-auth-token-here",
+  "storage": {
+    "type": "s3",
+    "s3": {
+      "access_key_id": "your-s3-access-key",
+      "secret_access_key": "your-s3-secret-key",
+      "region": "us-east-1",
+      "bucket": "your-s3-bucket",
+      "endpoint_url": "https://s3.amazonaws.com"
+    }
+  },
+  "pgsql": "postgresql://username:password@localhost:5432/database"
+}
