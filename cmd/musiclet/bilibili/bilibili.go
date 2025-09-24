@@ -140,8 +140,8 @@ func (c *ctxt) s3Upload(filename string, ext string) (string, error) {
 		return "", err
 	}
 
-	// 兼容 minio
 	var client *s3.Client
+	// 兼容自定义端点
 	if S3Config.EndpointURL != "" {
 		client = s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 			o.BaseEndpoint = &S3Config.EndpointURL
