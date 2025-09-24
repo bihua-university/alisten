@@ -128,7 +128,7 @@ func (c *ctxt) qiniuUpload(filename string, ext string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s/alisten/%s.%s", QiniuConfig.Domain, c.bvId, ext), nil
+	return fmt.Sprintf("%s/%s", QiniuConfig.Domain, key), nil
 }
 
 func (c *ctxt) s3Upload(filename string, ext string) (string, error) {
