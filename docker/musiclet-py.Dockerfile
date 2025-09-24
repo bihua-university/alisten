@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt update && apt-get --no-install-recommends install -y git
 
 # Python 依赖
-COPY pyproject.toml uv.lock /app/
+COPY pyproject.toml uv.lock README.md /app/
 COPY src /app/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync
