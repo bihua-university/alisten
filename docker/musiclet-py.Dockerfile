@@ -8,7 +8,7 @@ WORKDIR /app
 # 设置时区
 ENV TZ=Asia/Shanghai
 
-# 启用字节码编译，加速 NoneFlow 启动
+# 启用字节码编译，加速启动
 ENV UV_COMPILE_BYTECODE=1
 
 # 在不更新 uv.lock 文件的情况下运行
