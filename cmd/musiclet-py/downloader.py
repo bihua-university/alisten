@@ -11,13 +11,15 @@ import json
 class AudioDownloader:
     """使用yt-dlp下载音频的类"""
     
-    def __init__(self, temp_dir: str = None):
-        self.temp_dir = temp_dir or tempfile.gettempdir()
+    def __init__(self, download_dir: str = None):
+        self.download_dir = download_dir or "./downloads"
+        # 确保下载目录存在
+        os.makedirs(self.download_dir, exist_ok=True)
         self.ytdl_opts = {
             'format': 'bestaudio/best',
             'extractaudio': True,
             'audioformat': 'mp3',
-            'outtmpl': os.path.join(self.temp_dir, '%(id)s.%(ext)s'),
+            'outtmpl': os.path.join(self.download_dir, '%(id)s.%(ext)s'),
             'noplaylist': True,
             'quiet': True,
             'no_warnings': True,
@@ -62,13 +64,13 @@ class AudioDownloader:
                 
                 # 构建音频文件路径
                 audio_filename = f"{music_id}.mp3"
-                audio_path = os.path.join(self.temp_dir, audio_filename)
+                audio_path = os.path.join(self.download_dir, audio_filename)
                 
                 # 检查下载的文件是否存在
                 if not os.path.exists(audio_path):
                     # 尝试查找其他可能的文件扩展名
                     for ext in ['mp3', 'm4a', 'webm', 'opus']:
-                        potential_path = os.path.join(self.temp_dir, f"{music_id}.{ext}")
+                        potential_path = os.path.join(self.download_dir, f"{music_id}.{ext}")
                         if os.path.exists(potential_path):
                             audio_path = potential_path
                             break
@@ -84,7 +86,7 @@ class AudioDownloader:
                     # 查找下载的缩略图文件
                     thumbnail_path = None
                     for ext in ['jpg', 'jpeg', 'png', 'webp']:
-                        potential_thumbnail = os.path.join(self.temp_dir, f"{music_id}.{ext}")
+                        potential_thumbnail = os.path.join(self.download_dir, f"{music_id}.{ext}")
                         if os.path.exists(potential_thumbnail):
                             thumbnail_path = potential_thumbnail
                             break
