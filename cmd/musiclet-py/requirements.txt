@@ -1,0 +1,12 @@
+# Python Dependencies for Musiclet-py
+
+# Core dependencies
+aiohttp>=3.8.0
+psycopg2-binary>=2.9.0
+yt-dlp>=2023.1.6
+
+# Storage dependencies
+boto3>=1.26.0         # For S3-compatible storage
+
+# Additional utilities
+python-dateutil>=2.8.0

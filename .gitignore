@@ -9,3 +9,9 @@ musiclet.exe
 test-config.json
 *.crt
 *.key
+__pycache__
+downloads
+test_*.py
+config
+*.log
+test_config.json
