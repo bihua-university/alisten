@@ -17,11 +17,25 @@ import (
 	"github.com/qiniu/go-sdk/v7/storagev2/credentials"
 	"github.com/qiniu/go-sdk/v7/storagev2/http_client"
 	"github.com/qiniu/go-sdk/v7/storagev2/uploader"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	awsCreds "github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-var Config struct {
-	QiniuAK string
-	QiniuSK string
+var QiniuConfig struct {
+	Ak     string
+	Sk     string
+	Bucket string
+	Domain string
+}
+
+var S3Config struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	Region          string
+	Bucket          string
+	EndpointURL     string
 }
 
 type ctxt struct {
@@ -30,6 +44,21 @@ type ctxt struct {
 	title    string
 	owner    string
 	duration int
+}
+
+func InitQiniuConfig(ak, sk, bucket, domain string) {
+	QiniuConfig.Ak = ak
+	QiniuConfig.Sk = sk
+	QiniuConfig.Bucket = bucket
+	QiniuConfig.Domain = domain
+}
+
+func InitS3Config(accessKeyID, secretAccessKey, region, bucket, endpointURL string) {
+	S3Config.AccessKeyID = accessKeyID
+	S3Config.SecretAccessKey = secretAccessKey
+	S3Config.Region = region
+	S3Config.Bucket = bucket
+	S3Config.EndpointURL = endpointURL
 }
 
 // ProcessUpload 处理B站视频上传任务
@@ -75,8 +104,16 @@ func ProcessUpload(bvId string) (*bihua.MusicModel, error) {
 }
 
 func (c *ctxt) upload(filename string, ext string) (string, error) {
-	mac := credentials.NewCredentials(Config.QiniuAK, Config.QiniuSK)
-	bucket := "bihua-oss"
+	if QiniuConfig.Ak != "" && QiniuConfig.Sk != "" && QiniuConfig.Bucket != "" {
+		return c.qiniuUpload(filename, ext)
+	} else if S3Config.AccessKeyID != "" && S3Config.SecretAccessKey != "" && S3Config.Bucket != "" {
+		return c.s3Upload(filename, ext)
+	}
+	return "", fmt.Errorf("未配置上传参数")
+}
+
+func (c *ctxt) qiniuUpload(filename string, ext string) (string, error) {
+	mac := credentials.NewCredentials(QiniuConfig.Ak, QiniuConfig.Sk)
 	key := fmt.Sprintf("alisten/%s.%s", c.bvId, ext)
 	uploadManager := uploader.NewUploadManager(&uploader.UploadManagerOptions{
 		Options: http_client.Options{
@@ -84,14 +121,56 @@ func (c *ctxt) upload(filename string, ext string) (string, error) {
 		},
 	})
 	err := uploadManager.UploadFile(context.Background(), filename, &uploader.ObjectOptions{
-		BucketName: bucket,
+		BucketName: QiniuConfig.Bucket,
 		ObjectName: &key,
 		FileName:   key,
 	}, nil)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("https://bihua-oss.ggemo.com/alisten/%s.%s", c.bvId, ext), nil
+	return fmt.Sprintf("%s/alisten/%s.%s", QiniuConfig.Domain, c.bvId, ext), nil
+}
+
+func (c *ctxt) s3Upload(filename string, ext string) (string, error) {
+	awsCfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion(S3Config.Region),
+		config.WithCredentialsProvider(awsCreds.NewStaticCredentialsProvider(S3Config.AccessKeyID, S3Config.SecretAccessKey, "")),
+	)
+	if err != nil {
+		return "", err
+	}
+
+	var client *s3.Client
+	// 兼容自定义端点
+	if S3Config.EndpointURL != "" {
+		client = s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+			o.BaseEndpoint = &S3Config.EndpointURL
+			o.UsePathStyle = true
+		})
+	} else {
+		client = s3.NewFromConfig(awsCfg)
+	}
+	key := fmt.Sprintf("alisten/%s.%s", c.bvId, ext)
+	file, err := os.Open(filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket: &S3Config.Bucket,
+		Key:    &key,
+		Body:   file,
+	})
+	if err != nil {
+		return "", err
+	}
+	var url string
+	if S3Config.EndpointURL != "" {
+		url = fmt.Sprintf("%s/%s/%s", S3Config.EndpointURL, S3Config.Bucket, key)
+	} else {
+		url = fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", S3Config.Bucket, S3Config.Region, key)
+	}
+	return url, nil
 }
 
 // 下载媒体文件
