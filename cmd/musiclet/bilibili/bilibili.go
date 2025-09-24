@@ -19,9 +19,11 @@ import (
 	"github.com/qiniu/go-sdk/v7/storagev2/uploader"
 )
 
-var Config struct {
-	QiniuAK string
-	QiniuSK string
+var QiniuConfig struct {
+	Ak     string
+	Sk     string
+	Bucket string
+	Domain string
 }
 
 type ctxt struct {
@@ -30,6 +32,13 @@ type ctxt struct {
 	title    string
 	owner    string
 	duration int
+}
+
+func InitQiniuConfig(ak, sk, bucket, domain string) {
+	QiniuConfig.Ak = ak
+	QiniuConfig.Sk = sk
+	QiniuConfig.Bucket = bucket
+	QiniuConfig.Domain = domain
 }
 
 // ProcessUpload 处理B站视频上传任务
@@ -75,8 +84,14 @@ func ProcessUpload(bvId string) (*bihua.MusicModel, error) {
 }
 
 func (c *ctxt) upload(filename string, ext string) (string, error) {
-	mac := credentials.NewCredentials(Config.QiniuAK, Config.QiniuSK)
-	bucket := "bihua-oss"
+	if QiniuConfig.Ak != "" && QiniuConfig.Sk != "" && QiniuConfig.Bucket != "" {
+		return c.qiniuUpload(filename, ext)
+	}
+	return "", fmt.Errorf("未配置上传参数")
+}
+
+func (c *ctxt) qiniuUpload(filename string, ext string) (string, error) {
+	mac := credentials.NewCredentials(QiniuConfig.Ak, QiniuConfig.Sk)
 	key := fmt.Sprintf("alisten/%s.%s", c.bvId, ext)
 	uploadManager := uploader.NewUploadManager(&uploader.UploadManagerOptions{
 		Options: http_client.Options{
@@ -84,14 +99,14 @@ func (c *ctxt) upload(filename string, ext string) (string, error) {
 		},
 	})
 	err := uploadManager.UploadFile(context.Background(), filename, &uploader.ObjectOptions{
-		BucketName: bucket,
+		BucketName: QiniuConfig.Bucket,
 		ObjectName: &key,
 		FileName:   key,
 	}, nil)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("https://bihua-oss.ggemo.com/alisten/%s.%s", c.bvId, ext), nil
+	return fmt.Sprintf("%s/alisten/%s.%s", QiniuConfig.Domain, c.bvId, ext), nil
 }
 
 // 下载媒体文件

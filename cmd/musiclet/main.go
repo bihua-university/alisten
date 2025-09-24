@@ -14,12 +14,23 @@ import (
 	"github.com/bihua-university/alisten/internal/task"
 )
 
+type QiniuConfig struct {
+	Ak     string `json:"ak"`
+	Sk     string `json:"sk"`
+	Bucket string `json:"bucket"`
+	Domain string `json:"domain"`
+}
+
+type StorageConfig struct {
+	Type  string      `json:"type"` // "qiniu" or "s3"
+	Qiniu QiniuConfig `json:"qiniu"`
+}
+
 type Config struct {
-	ServerURL string `json:"server_url"`
-	Token     string `json:"token"`
-	QiniuAK   string `json:"qiniu_ak"`
-	QiniuSK   string `json:"qiniu_sk"`
-	Pgsql     string `json:"pgsql"`
+	ServerURL string        `json:"server_url"`
+	Token     string        `json:"token"`
+	Storage   StorageConfig `json:"storage"`
+	Pgsql     string        `json:"pgsql"`
 }
 
 // loadConfig 读取配置文件
@@ -58,8 +69,18 @@ func main() {
 	log.Printf("配置文件读取成功，服务器地址: %s", config.ServerURL)
 
 	// init bilibili config
-	bilibili.Config.QiniuAK = config.QiniuAK
-	bilibili.Config.QiniuSK = config.QiniuSK
+	switch config.Storage.Type {
+	case "qiniu":
+		bilibili.InitQiniuConfig(
+			config.Storage.Qiniu.Ak,
+			config.Storage.Qiniu.Sk,
+			config.Storage.Qiniu.Bucket,
+			config.Storage.Qiniu.Domain,
+		)
+		log.Println("七牛云存储配置初始化完成")
+	default:
+		log.Fatalf("不支持的存储类型: %s", config.Storage.Type)
+	}
 	log.Println("Bilibili 配置初始化完成")
 
 	bihua.InitDB(config.Pgsql)
