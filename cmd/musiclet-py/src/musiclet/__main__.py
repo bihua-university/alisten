@@ -72,7 +72,7 @@ class MusicletProcessor:
 
         try:
             if task.type == "url_common:get_music":
-                await self._process_url_music_task(task, task.data["id"], result)
+                await self._process_url_music_task(task, task.data["url"], result)
             elif task.type == "bilibili:get_music":
                 task.data["url"] = "https://www.bilibili.com/video/" + task.data["bvid"]
                 await self._process_url_music_task(task, task.data["bvid"], result)
@@ -137,6 +137,7 @@ class MusicletProcessor:
         if saved_music:
             result.success = True
             result.result = convert_to_map(saved_music)
+            result.result["webUrl"] = url
             logging.info(f"URL音频处理成功: {music_info['name']}")
         else:
             result.error = "无法从数据库获取保存的音乐信息"
