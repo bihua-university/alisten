@@ -1,3 +1,5 @@
+# docker buildx build -f docker/musiclet-py.Dockerfile -t musiclet-py:latest .
+
 # 这样能分别控制 uv 和 Python 版本
 FROM python:3.13.5-slim
 COPY --from=ghcr.io/astral-sh/uv:0.8.8 /uv /bin/uv
@@ -26,8 +28,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt update && apt-get --no-install-recommends install -y git ffmpeg
 
 # Python 依赖
-COPY pyproject.toml uv.lock README.md /app/
-COPY src /app/src/
+COPY cmd/musiclet-py/pyproject.toml cmd/musiclet-py/uv.lock cmd/musiclet-py/README.md /app/
+
+COPY cmd/musiclet-py/src /app/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync
 
