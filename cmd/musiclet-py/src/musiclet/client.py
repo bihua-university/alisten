@@ -34,7 +34,7 @@ class TaskClient:
 
     def _get_headers(self) -> dict:
         """获取请求头"""
-        headers = {"Music-Let-Version": "v0.0.2"}
+        headers = {"Music-Let-Version": "v0.1.1"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
