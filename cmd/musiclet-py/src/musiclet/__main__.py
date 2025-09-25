@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from .client import TaskClient
 from .config import load_config
-from .database import convert_to_map, get_music_by_id, init_db, insert_music
+from .database import convert_to_map, get_music_by_id, init_db, insert_music, search_music_by_db
 from .downloader import AudioDownloader, create_uploader
 from .task import Result, Task
 
@@ -73,9 +73,11 @@ class MusicletProcessor:
         try:
             if task.type == "url_common:get_music":
                 await self._process_url_music_task(task, task.data["id"], result)
-            if task.type == "bilibili:get_music":
+            elif task.type == "bilibili:get_music":
                 task.data["url"] = "https://www.bilibili.com/video/" + task.data["bvid"]
                 await self._process_url_music_task(task, task.data["bvid"], result)
+            elif task.type == "bilibili:search_music":
+                await self._process_search_music_task(task, result)
             else:
                 result.error = f"未知的任务类型: {task.type}"
                 logging.warning(f"收到未知任务类型 (任务 {task.id}): {task.type}")
@@ -138,6 +140,58 @@ class MusicletProcessor:
             logging.info(f"URL音频处理成功: {music_info['name']}")
         else:
             result.error = "无法从数据库获取保存的音乐信息"
+
+    async def _process_search_music_task(self, task: Task, result: Result):
+        """处理搜索音乐任务"""
+        keyword = task.data.get("keyword")
+        if not keyword:
+            result.error = "缺少 keyword 参数"
+            logging.error(f"任务 {task.id} 缺少 keyword 参数")
+            return
+
+        # 获取分页参数，提供默认值
+        try:
+            page = int(task.data.get("page", "1"))
+            page_size = int(task.data.get("pageSize", "20"))
+        except (ValueError, TypeError) as e:
+            result.error = f"分页参数格式错误: {e}"
+            logging.error(f"任务 {task.id} 分页参数格式错误: {e}")
+            return
+
+        logging.info(f"开始搜索音乐: keyword={keyword}, page={page}, pageSize={page_size}")
+
+        try:
+            # 调用数据库搜索函数
+            music_list, total = search_music_by_db(keyword, page, page_size)
+
+            # 转换为API格式，类似于Go版本中的ConvertMusicList
+            data_list = []
+            for music in music_list:
+                # 构建Music结构体格式的音乐信息
+                music_data = {
+                    "id": music.music_id,
+                    "name": music.name,
+                    "artist": music.artist,
+                    "album": music.album_name,
+                    "duration": music.duration,
+                    "cover": music.picture_url,
+                    "source": "db"  # 数据库中的音乐标记为db源
+                }
+                data_list.append(music_data)
+
+            # 构建响应结果
+            search_result = {
+                "data": data_list,
+                "total": total
+            }
+
+            result.success = True
+            result.result = search_result
+            logging.info(f"音乐搜索成功: 关键词={keyword}, 找到{total}条记录, 返回{len(data_list)}条")
+
+        except Exception as e:
+            result.error = f"搜索音乐失败: {e}"
+            logging.error(f"搜索音乐失败 (任务 {task.id}, 关键词 {keyword}): {e}")
 
     async def run(self):
         """运行主循环"""
