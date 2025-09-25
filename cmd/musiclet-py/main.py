@@ -3,6 +3,8 @@ import logging
 import signal
 import sys
 import os
+import shutil
+import subprocess
 from typing import Dict, Any
 
 # 添加当前目录到Python路径，以便导入本地模块
@@ -13,6 +15,41 @@ from client import TaskClient
 from task import Task, Result
 from downloader import AudioDownloader, create_uploader
 from database import init_db, get_music_by_id, insert_music, convert_to_map
+
+
+def check_ffmpeg():
+    """检查 ffmpeg 是否可用"""
+    if not shutil.which("ffmpeg"):
+        logging.error("❌ FFmpeg 未找到！")
+        logging.error("请确保已安装 FFmpeg 并且在系统 PATH 中可用")
+        logging.error("安装方法:")
+        logging.error("  - Ubuntu/Debian: sudo apt-get install ffmpeg")
+        logging.error("  - CentOS/RHEL: sudo yum install ffmpeg")
+        logging.error("  - macOS: brew install ffmpeg")
+        logging.error("  - Windows: 从 https://ffmpeg.org/download.html 下载")
+        sys.exit(1)
+    
+    try:
+        # 尝试运行 ffmpeg 获取版本信息
+        result = subprocess.run(
+            ["ffmpeg", "-version"], 
+            capture_output=True, 
+            text=True, 
+            timeout=10
+        )
+        if result.returncode == 0:
+            # 提取版本信息（通常在第一行）
+            version_line = result.stdout.split('\n')[0]
+            logging.info(f"✅ FFmpeg 检查通过: {version_line}")
+        else:
+            logging.error("❌ FFmpeg 运行失败")
+            sys.exit(1)
+    except subprocess.TimeoutExpired:
+        logging.error("❌ FFmpeg 版本检查超时")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"❌ FFmpeg 检查时发生错误: {e}")
+        sys.exit(1)
 
 
 class MusicletProcessor:
@@ -29,6 +66,10 @@ class MusicletProcessor:
     async def initialize(self):
         """初始化组件"""
         logging.info("=== Musiclet Python版 启动 ===")
+        
+        # 检查 ffmpeg 环境
+        logging.info("正在检查 FFmpeg 环境...")
+        check_ffmpeg()
         
         # 读取配置文件
         logging.info("正在读取配置文件...")
