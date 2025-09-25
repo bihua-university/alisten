@@ -116,7 +116,7 @@ jobs:
       - name: Build and push musiclet-py image
         uses: docker/build-push-action@v6
         with:
-          context: cmd/musiclet-py
+          context: .
           file: docker/musiclet-py.Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta-musiclet-py.outputs.tags }}

@@ -30,19 +30,14 @@ type PickMusicResult struct {
 func doPickMusic(house *House, id, name, source string, user auth.User) PickMusicResult {
 	// 聊天点歌只有名字，没有ID的情况
 	if id == "" {
-		if strings.HasPrefix(name, "BV") {
-			source = "db"
-			id = name
-		} else {
-			r := music.SearchMusic(music.SearchOption{
-				Source:   source,
-				Keyword:  name,
-				Page:     1,
-				PageSize: 10,
-			})
-			if len(r.Data) > 0 {
-				id = r.Data[0].ID
-			}
+		r := music.SearchMusic(music.SearchOption{
+			Source:   source,
+			Keyword:  name,
+			Page:     1,
+			PageSize: 10,
+		})
+		if len(r.Data) > 0 {
+			id = r.Data[0].ID
 		}
 	}
 

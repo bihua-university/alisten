@@ -27,6 +27,7 @@ func GetMusic(source, id string, useCache bool) H {
 		h = getNeteaseMusic(id)
 	case "qq":
 		h = getQQMusic(id)
+	// deprecated, 可以使用common_url平替
 	case "db":
 		t := task.Scheduler.NewTask("bilibili:get_music", map[string]string{"bvid": id})
 		r := task.Scheduler.Call(t, 1*time.Minute)
@@ -40,6 +41,26 @@ func GetMusic(source, id string, useCache bool) H {
 				"pictureUrl": rg.Get("pictureUrl").String(),
 				"duration":   rg.Get("duration").Int(),
 				"source":     "db",
+				"artist":     rg.Get("artist").String(),
+				"name":       rg.Get("name").String(),
+				"album":      rg.Get("al.name").String(),
+			}
+		}
+	case "url_common":
+		// 目前`id`兼职`url`
+		var url string = id
+		t := task.Scheduler.NewTask("url_common:get_music", map[string]string{"url": url})
+		r := task.Scheduler.Call(t, 1*time.Minute)
+		if r != nil && r.Result != nil {
+			rg := gjson.ParseBytes(r.Result)
+			h = H{
+				"type":       rg.Get("type").String(),
+				"url":        rg.Get("url").String(),
+				"id":         id,
+				"webUrl":     url,
+				"pictureUrl": rg.Get("pictureUrl").String(),
+				"duration":   rg.Get("duration").Int(),
+				"source":     "url_common",
 				"artist":     rg.Get("artist").String(),
 				"name":       rg.Get("name").String(),
 				"album":      rg.Get("al.name").String(),

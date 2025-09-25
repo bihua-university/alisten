@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import os
+import subprocess
 from typing import Any
 
 import yt_dlp
@@ -34,6 +35,36 @@ class AudioDownloader:
     def _generate_id_from_url(self, url: str) -> str:
         """从URL生成唯一ID"""
         return hashlib.md5(url.encode()).hexdigest()
+
+    def _get_audio_duration_ms(self, audio_path: str) -> int:
+        """使用ffmpeg获取音频文件的实际长度（毫秒）"""
+        try:
+            # 使用ffprobe获取音频时长
+            cmd = [
+                "ffprobe",
+                "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
+                audio_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                duration_seconds = float(result.stdout.strip())
+                duration_ms = int(duration_seconds * 1000)
+                logging.debug(f"通过ffprobe获取音频时长: {duration_ms}ms")
+                return duration_ms
+            else:
+                logging.warning(f"ffprobe获取时长失败: {result.stderr}")
+                return 0
+                
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, ValueError) as e:
+            logging.error(f"使用ffprobe获取音频时长时发生错误: {e}")
+            return 0
+        except FileNotFoundError:
+            logging.error("ffprobe未找到，请确保已安装ffmpeg")
+            return 0
 
     def download_audio(self, url: str, uploader: "StorageUploader | None" = None) -> dict[str, Any] | None:
         """
@@ -106,13 +137,16 @@ class AudioDownloader:
                     else:
                         logging.debug(f"未找到本地缩略图文件: {music_id}")
 
+                # 获取实际音频文件的长度
+                actual_duration = self._get_audio_duration_ms(audio_path)
+                
                 # 提取音频信息
                 music_info = {
                     "id": music_id,
                     "name": info.get("title", "Unknown"),
                     "artist": info.get("uploader", "Unknown"),
                     "album": info.get("album", ""),
-                    "duration": int(info.get("duration", 0)),
+                    "duration": actual_duration,
                     "picture_url": uploaded_thumbnail_url,
                     "web_url": url,
                     "local_path": audio_path,

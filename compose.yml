@@ -25,6 +25,18 @@ services:
     networks:
       - alisten-network
 
+  # Musiclet-py 工作服务
+  musiclet-py:
+    image: musiclet-py:latest
+    container_name: alisten-musiclet-py
+    volumes:
+      - ./musiclet-config.json:/app/config.json:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - alisten-network
+
 networks:
   alisten-network:
     driver: bridge
