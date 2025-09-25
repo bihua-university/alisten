@@ -112,7 +112,7 @@ class AudioDownloader:
                     "name": info.get("title", "Unknown"),
                     "artist": info.get("uploader", "Unknown"),
                     "album": info.get("album", ""),
-                    "duration": int(info.get("duration", 0)),
+                    "duration": int(float(info.get("duration", 0)) * 1000),
                     "picture_url": uploaded_thumbnail_url,
                     "web_url": url,
                     "local_path": audio_path,

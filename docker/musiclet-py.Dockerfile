@@ -23,7 +23,7 @@ ENV UV_NO_DEV=1
 # 安装依赖
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt update && apt-get --no-install-recommends install -y git
+    apt update && apt-get --no-install-recommends install -y git ffmpeg
 
 # Python 依赖
 COPY pyproject.toml uv.lock README.md /app/

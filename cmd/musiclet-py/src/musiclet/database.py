@@ -105,7 +105,7 @@ class Database:
                             music_info.get("picture_url", ""),
                             music_info.get("duration", 0),
                             music_info.get("url", ""),
-                            music_info.get("description", ""),  # 使用description作为lyric
+                            "",
                             music_id,
                         ),
                     )
@@ -115,8 +115,8 @@ class Database:
             else:
                 # 插入新记录
                 insert_sql = """
-                INSERT INTO music_models (music_id, name, artist, album_name, picture_url, duration, url, lyric)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO music_models (music_id, name, artist, album_name, picture_url, duration, url, lyric, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """
 
                 with self.connection.cursor() as cursor:
@@ -130,7 +130,7 @@ class Database:
                             music_info.get("picture_url", ""),
                             music_info.get("duration", 0),
                             music_info.get("url", ""),
-                            music_info.get("description", ""),  # 使用description作为lyric
+                            ""
                         ),
                     )
 
