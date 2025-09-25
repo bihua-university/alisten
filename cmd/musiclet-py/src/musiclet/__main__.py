@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import signal
+import subprocess
 import sys
 
 # 添加当前目录到Python路径，以便导入本地模块
@@ -28,6 +29,11 @@ class MusicletProcessor:
     async def initialize(self):
         """初始化组件"""
         logging.info("=== Musiclet Python版 启动 ===")
+
+        # 检查ffmpeg是否存在
+        if not self._check_ffmpeg():
+            logging.error("FFmpeg未找到，程序无法运行")
+            return False
 
         # 读取配置文件
         logging.info("正在读取配置文件...")
@@ -63,6 +69,31 @@ class MusicletProcessor:
         logging.info("音频下载器初始化完成")
 
         return True
+
+    def _check_ffmpeg(self):
+        """检查ffmpeg是否可用"""
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-version"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                logging.info("FFmpeg检查通过")
+                return True
+            else:
+                logging.error("FFmpeg命令执行失败")
+                return False
+        except subprocess.TimeoutExpired:
+            logging.error("FFmpeg检查超时")
+            return False
+        except FileNotFoundError:
+            logging.error("FFmpeg未安装或不在PATH环境变量中")
+            return False
+        except Exception as e:
+            logging.error(f"FFmpeg检查时发生异常: {e}")
+            return False
 
     async def process_task(self, task: Task) -> Result:
         """处理任务"""
