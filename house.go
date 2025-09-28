@@ -53,6 +53,8 @@ type House struct {
 	lastActiveTime time.Time
 	queue          syncx.UnboundedChan[[]byte]
 	close          chan struct{}
+	lastOrderTime  time.Time
+	recommander    music.NeteaseMusicRecommander
 
 	// limiters
 	searchLimiter *rate.Limiter
@@ -94,6 +96,7 @@ func createHouse(houseID string, name, desc, password string, persist bool) {
 		lastActiveTime: time.Now(),
 		queue:          syncx.NewUnboundedChan[[]byte](8),
 		close:          make(chan struct{}),
+		recommander:    music.NeteaseMusicRecommander{},
 	}
 	if !house.ultimate {
 		house.searchLimiter = rate.NewLimiter(rate.Every(time.Minute), 10)
@@ -328,6 +331,23 @@ func (h *House) Skip(force bool) {
 	})
 	if change {
 		h.Push(play)
+		if play.source == "wy" {
+			if play.user == (auth.User{Name: "系统推荐"}) {
+				// system recommended music, also mark it to avoid recommend again
+				h.recommander.Mark(play.id)
+			} else {
+				h.recommander.AddHistory(play.id)
+			}
+		}
+		h.lock(func() {
+			if len(h.Playlist) > 0 || h.lastOrderTime.Add(10*time.Second).After(time.Now()) || len(h.Connection) == 0 {
+				return
+			}
+			// recommend a music
+			list := h.recommander.Recommend(nil)
+			choose := rand.IntN(len(list))
+			h.Playlist = append(h.Playlist, Order{source: "wy", id: list[choose], user: auth.User{Name: "系统推荐"}})
+		})
 		h.PushPlaylist()
 	}
 }

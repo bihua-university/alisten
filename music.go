@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
@@ -60,6 +61,7 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 	}
 	if !same {
 		house.Playlist = append(house.Playlist, Order{source: source, id: id, user: user})
+		house.lastOrderTime = time.Now()
 	}
 	house.Mu.Unlock()
 
