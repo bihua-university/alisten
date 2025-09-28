@@ -193,12 +193,12 @@ class Database:
             count_sql = """
             SELECT COUNT(*) as total
             FROM music_models
-            WHERE (name ILIKE %s OR artist ILIKE %s) AND deleted_at IS NULL
+            WHERE (name ILIKE %s OR artist ILIKE %s OR music_id like %s) AND deleted_at IS NULL
             """
 
             with self.connection.cursor() as cursor:
                 search_term = f"%{keyword}%"
-                cursor.execute(count_sql, (search_term, search_term))
+                cursor.execute(count_sql, (search_term, search_term, search_term))
                 total = cursor.fetchone()[0]
 
             # 获取分页数据
@@ -206,13 +206,13 @@ class Database:
             SELECT id, music_id, name, artist, album_name, picture_url, duration, url, lyric, play_count,
                    created_at, updated_at, deleted_at
             FROM music_models
-            WHERE (name ILIKE %s OR artist ILIKE %s) AND deleted_at IS NULL
+            WHERE (name ILIKE %s OR artist ILIKE %s OR music_id like %s) AND deleted_at IS NULL
             ORDER BY play_count DESC
             LIMIT %s OFFSET %s
             """
 
             with self.connection.cursor(cursor_factory=DictCursor) as cursor:
-                cursor.execute(search_sql, (search_term, search_term, page_size, offset))
+                cursor.execute(search_sql, (search_term, search_term, search_term, page_size, offset))
                 rows = cursor.fetchall()
 
                 musics = []
