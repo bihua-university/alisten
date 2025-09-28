@@ -30,7 +30,7 @@ func GetMusic(source, id string, useCache bool) H {
 	// deprecated, 可以使用common_url平替
 	case "db":
 		t := task.Scheduler.NewTask("bilibili:get_music", map[string]string{"bvid": id})
-		r := task.Scheduler.Call(t, 1*time.Minute)
+		r := task.Scheduler.Call(t, 3*time.Minute)
 		if r != nil && r.Result != nil {
 			rg := gjson.ParseBytes(r.Result)
 			h = H{
@@ -50,7 +50,7 @@ func GetMusic(source, id string, useCache bool) H {
 		// 目前`id`兼职`url`
 		var url string = id
 		t := task.Scheduler.NewTask("url_common:get_music", map[string]string{"url": url})
-		r := task.Scheduler.Call(t, 1*time.Minute)
+		r := task.Scheduler.Call(t, 3*time.Minute)
 		if r != nil && r.Result != nil {
 			rg := gjson.ParseBytes(r.Result)
 			h = H{
