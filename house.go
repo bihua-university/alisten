@@ -54,7 +54,7 @@ type House struct {
 	queue          syncx.UnboundedChan[[]byte]
 	close          chan struct{}
 	lastOrderTime  time.Time
-	recommander    music.NeteaseMusicRecommander
+	recommander    *music.NeteaseMusicRecommander
 
 	// limiters
 	searchLimiter *rate.Limiter
@@ -96,7 +96,7 @@ func createHouse(houseID string, name, desc, password string, persist bool) {
 		lastActiveTime: time.Now(),
 		queue:          syncx.NewUnboundedChan[[]byte](8),
 		close:          make(chan struct{}),
-		recommander:    music.NeteaseMusicRecommander{},
+		recommander:    music.NewNeteaseMusicRecommander(),
 	}
 	if !house.ultimate {
 		house.searchLimiter = rate.NewLimiter(rate.Every(time.Minute), 10)

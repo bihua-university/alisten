@@ -11,7 +11,7 @@ import (
 
 type H = map[string]any
 
-var cache = expirable.NewLRU[string, H](256, nil, 30*time.Minute)
+var cache = expirable.NewLRU[string, H](512, nil, 30*time.Minute)
 
 func GetMusic(source, id string, useCache bool) H {
 	key := source + "OvO" + id

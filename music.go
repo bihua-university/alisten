@@ -394,3 +394,37 @@ func getPlaylist(c *Context) {
 		c.Send(base.H{"playlist": list})
 	}
 }
+
+func recommendMusic(c *Context) {
+	c.house.Wait(WaitSearch)
+	var list []string
+	c.WithHouse(func(h *House) {
+		for _, o := range h.Playlist {
+			if o.source != "wy" {
+				continue
+			}
+			list = append(list, o.id)
+		}
+	})
+
+	recommand := c.house.recommander.Recommend(list)
+	var data []*music.Music
+	for _, id := range recommand {
+		m := music.GetMusic("wy", id, true)
+		data = append(data, &music.Music{
+			ID:       m["id"].(string),
+			Name:     m["name"].(string),
+			Artist:   m["artist"].(string),
+			Album:    m["album"].(string),
+			Duration: int64(m["duration"].(int64)),
+			Cover:    m["pictureUrl"].(string),
+			Source:   music.NetEase,
+		})
+	}
+
+	c.conn.Send(base.H{
+		"type":      "music/recommend",
+		"data":      data,
+		"totalSize": len(data),
+	})
+}
