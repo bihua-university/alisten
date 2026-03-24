@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 
 # 构建 alisten 应用
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o alisten .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o alisten ./cmd/alisten
 
 # 使用轻量级的 alpine 镜像作为运行环境
 FROM alpine:latest
