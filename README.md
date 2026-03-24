@@ -49,26 +49,6 @@ put config.json in the root directory of your project.
   - `desc`: 房间描述
   - `password`: 房间密码（可选，为空表示无密码）
 
-## Musiclet Config
-
-Musiclet 是一个独立的音乐服务客户端，需要单独的配置文件。请在项目根目录创建 `musiclet-config.json` 文件：
-
-```json
-{
-    "server_url": "https://your-server-url",
-    "token": "your-token",
-    "qiniu_ak": "your-qiniu-access-key",
-    "qiniu_sk": "your-qiniu-secret-key"
-}
-```
-
-### Musiclet 配置说明
-
-- `server_url`: 主服务器地址
-- `token`: 认证令牌
-- `qiniu_ak`: 七牛云 Access Key（可选）
-- `qiniu_sk`: 七牛云 Secret Key（可选）
-
 ## Features
 
 - 🎵 支持多平台音乐源（Bilibili、网易云音乐、QQ音乐）
@@ -152,7 +132,6 @@ cd alisten
 
 # 准备配置文件
 cp config.json.example config.json
-cp musiclet-config.json.example musiclet-config.json
 
 # 启动服务
 docker compose up -d

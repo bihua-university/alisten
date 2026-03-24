@@ -13,18 +13,6 @@ services:
     networks:
       - alisten-network
 
-  # Musiclet 工作服务
-  musiclet:
-    image: ghcr.io/bihua-university/alisten-musiclet:latest
-    container_name: alisten-musiclet
-    volumes:
-      - ./musiclet-config.json:/app/config.json:ro
-    restart: unless-stopped
-    environment:
-      - TZ=Asia/Shanghai
-    networks:
-      - alisten-network
-
   # Musiclet-py 工作服务
   musiclet-py:
     image: musiclet-py:latest
