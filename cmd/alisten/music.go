@@ -24,6 +24,7 @@ type PickMusicResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Name    string `json:"name,omitempty"`
+	Artist  string `json:"artist,omitempty"`
 	Source  string `json:"source,omitempty"`
 	ID      string `json:"id,omitempty"`
 }
@@ -80,10 +81,17 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 		name = actualName
 	}
 
+	artist := "unknown"
+
+	if a, ok := m["artist"].(string); ok && a != "" {
+		artist = a
+	}
+
 	return PickMusicResult{
 		Success: true,
 		Message: "点歌成功",
 		Name:    name,
+		Artist:  artist,
 		Source:  source,
 		ID:      id,
 	}
@@ -363,6 +371,7 @@ func getPlaylist(c *Context) {
 	// build playlist response
 	type item struct {
 		Name   string    `json:"name"`
+		Artist string    `json:"artist"`
 		Source string    `json:"source"`
 		ID     string    `json:"id"`
 		Likes  int       `json:"likes"`
@@ -374,8 +383,13 @@ func getPlaylist(c *Context) {
 		for _, o := range house.Playlist {
 			m := music.GetMusic(o.source, o.id, true)
 			name, _ := m["name"].(string)
+			artist, _ := m["artist"].(string)
+			if artist == "" {
+				artist = "unknown"
+			}
 			list = append(list, item{
 				Name:   name,
+				Artist: artist,
 				Source: o.source,
 				ID:     o.id,
 				Likes:  o.likes,
