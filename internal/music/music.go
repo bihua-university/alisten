@@ -68,6 +68,15 @@ type SearchOption struct {
 	PageSize int64
 }
 
+func (o *SearchOption) normalize() {
+	if o.Page <= 0 {
+		o.Page = 1
+	}
+	if o.PageSize <= 0 {
+		o.PageSize = 20
+	}
+}
+
 type SearchResult[T any] struct {
 	Total int64
 	Data  []*T

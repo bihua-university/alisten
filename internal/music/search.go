@@ -12,6 +12,7 @@ import (
 )
 
 func SearchMusic(o SearchOption) SearchResult[Music] {
+	o.normalize()
 	switch o.Source {
 	case "wy":
 		client := neteaseClient()
@@ -66,6 +67,7 @@ func SearchMusic(o SearchOption) SearchResult[Music] {
 }
 
 func SearchPlaylist(o SearchOption) SearchResult[Playlist] {
+	o.normalize()
 	switch o.Source {
 	case "wy":
 		return searchNeteasePlaylist(o)
