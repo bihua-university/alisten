@@ -94,7 +94,7 @@ func searchMusic(c *Context) {
 	name := c.Get("name").String()
 	o := music.SearchOption{
 		Source:   c.Get("source").String(),
-		Keyword:  c.Get("name").String(),
+		Keyword:  c.Get("keyword").String(),
 		Page:     c.Get("pageIndex").Int(),
 		PageSize: c.Get("pageSize").Int(),
 	}
@@ -299,7 +299,7 @@ func searchList(c *Context) {
 	c.house.Wait(WaitSearch)
 	r := music.SearchPlaylist(music.SearchOption{
 		Source:   c.Get("source").String(),
-		Keyword:  c.Get("name").String(),
+		Keyword:  c.Get("keyword").String(),
 		Page:     c.Get("pageIndex").Int(),
 		PageSize: c.Get("pageSize").Int(),
 	})

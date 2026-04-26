@@ -10,12 +10,13 @@ func GenerateWebURL(source, id string) string {
 	case "qq":
 		return fmt.Sprintf("https://y.qq.com/n/ryqq/songDetail/%s", id)
 	case "db":
-		// For Bilibili videos (stored in db), the ID is typically a BV ID
 		return fmt.Sprintf("https://www.bilibili.com/video/%s", id)
 	default:
 		return ""
 	}
 }
+
+type H = map[string]interface{}
 
 type Source int
 
@@ -45,7 +46,7 @@ type Music struct {
 	Album    string `json:"album"`
 	Duration int64  `json:"duration"`
 	Cover    string `json:"cover"`
-	Source   Source `json:"source"` // qq/163/kuwo
+	Source   Source `json:"source"`
 }
 
 type Playlist struct {
@@ -57,4 +58,17 @@ type Playlist struct {
 	CreatorUid string `json:"creatorUid"`
 	PlayCount  int64  `json:"playCount"`
 	SongCount  int64  `json:"songCount"`
+}
+
+type SearchOption struct {
+	ID       string
+	Source   string
+	Keyword  string
+	Page     int64
+	PageSize int64
+}
+
+type SearchResult[T any] struct {
+	Total int64
+	Data  []*T
 }

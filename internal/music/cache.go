@@ -9,8 +9,6 @@ import (
 	"github.com/bihua-university/alisten/internal/task"
 )
 
-type H = map[string]any
-
 var cache = expirable.NewLRU[string, H](512, nil, 30*time.Minute)
 
 func GetMusic(source, id string, useCache bool) H {

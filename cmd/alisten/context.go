@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 
 	"github.com/bihua-university/alisten/internal/auth"
+	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/syncx"
 
 	"github.com/gorilla/websocket"
@@ -107,5 +109,8 @@ func (c *Connection) Send(j any) {
 }
 
 func (c *Connection) SendRaw(j []byte) {
+	if base.Config.Debug {
+		fmt.Println("[DEBUG][OUT]:", string(j))
+	}
 	c.send.In() <- j
 }

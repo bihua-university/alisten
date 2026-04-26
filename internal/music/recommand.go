@@ -110,13 +110,17 @@ func (mr *NeteaseMusicRecommander) Recommend(playlist []string) []string {
 			return
 		}
 
-		r := NeteasePost("/simi/song", H{"id": id}, "id")
+		client := neteaseClient()
+		result, err := client.GetSimilarSongs(id)
+		if err != nil {
+			return
+		}
 		recommend := make([]string, 0, 5)
-		r.Get("songs").ForEach(func(_, v gjson.Result) bool {
-			id := v.Get("id").String()
-			recommend = append(recommend, id)
-			if _, ok := visit[id]; !ok { // don't recommend existed music
-				item[id] = struct{}{}
+		result.Get("songs").ForEach(func(_, v gjson.Result) bool {
+			sid := v.Get("id").String()
+			recommend = append(recommend, sid)
+			if _, ok := visit[sid]; !ok { // don't recommend existed music
+				item[sid] = struct{}{}
 			}
 			return true
 		})
