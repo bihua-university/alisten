@@ -2,15 +2,31 @@ package music
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/music/kuwo"
 	"github.com/bihua-university/alisten/internal/music/qq"
 )
 
 var qqClient = qq.New()
+
+func Get(u string) gjson.Result {
+	response, err := http.Get(u)
+	if err != nil {
+		return gjson.Result{}
+	}
+	defer response.Body.Close()
+
+	all, err := io.ReadAll(response.Body)
+	if err != nil {
+		return gjson.Result{}
+	}
+	return gjson.ParseBytes(all)
+}
 
 func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 	start := (o.Page - 1) * o.PageSize
@@ -57,26 +73,28 @@ func getQQMusic(id string) H {
 		artist += value.Get("name").String()
 		return true
 	})
-	kuwoClient := kuwo.New()
-	music, _ := kuwoClient.Search(detail.Get("name").String() + " " + detail.Get("singer.0.name").String())
-	url := ""
-	if len(music) > 0 {
-		url, _ = kuwoClient.GetDownloadURL(music[0].ID)
-	}
+
+	songName := detail.Get("name").String()
+	key := url.QueryEscape(songName + " " + artist)
+	search := Get(fmt.Sprintf("https://music-api.gdstudio.xyz/api.php?types=search&source=kuwo&name=%s&count=20&pages=1", key))
+	rid := search.Get("0.id").String()
+
+	download := Get(fmt.Sprintf("https://music-api.gdstudio.xyz/api.php?types=url&source=kuwo&id=%s&br=320", url.QueryEscape(rid)))
+	fmt.Println(download.String())
 
 	ablumMid := detail.Get("album.mid").String()
 	picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", ablumMid)
 
 	return H{
 		"type":       "music",
-		"url":        url,
+		"url":        download.Get("url").String(),
 		"webUrl":     GenerateWebURL("qq", id),
 		"pictureUrl": picture,
 		"duration":   detail.Get("interval").Int() * 1000,
 		"source":     "qq",
 		"lyric":      lyric,
 		"artist":     artist,
-		"name":       detail.Get("name").String(),
+		"name":       songName,
 		"album":      detail.Get("album.name").String(),
 		"id":         id,
 	}
