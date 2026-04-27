@@ -2,16 +2,14 @@ package netease
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
-	"math/rand"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/tidwall/gjson"
+
+	"github.com/bihua-university/alisten/internal/music/utils"
 )
 
 const (
@@ -39,13 +37,13 @@ func New(cookie string) *Netease {
 }
 
 // defaultHeaders 返回带有认证信息的默认请求头
-func (n *Netease) defaultHeaders() []requestOption {
-	return []requestOption{
-		withHeader("Referer", referer),
-		withHeader("Content-Type", "application/x-www-form-urlencoded"),
-		withHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
-		withHeader("Cookie", n.cookie),
-		withRandomIPHeader(),
+func (n *Netease) defaultHeaders() []utils.RequestOption {
+	return []utils.RequestOption{
+		utils.WithHeader("Referer", referer),
+		utils.WithHeader("Content-Type", "application/x-www-form-urlencoded"),
+		utils.WithHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
+		utils.WithHeader("Cookie", n.cookie),
+		utils.WithRandomIPHeader(),
 	}
 }
 
@@ -71,7 +69,7 @@ func (n *Netease) _postWeapi(apiURL string, reqData map[string]interface{}, useC
 	form.Set("params", params)
 	form.Set("encSecKey", encSecKey)
 
-	body, err := post(apiURL, strings.NewReader(form.Encode()), n.defaultHeaders()...)
+	body, err := utils.Post(apiURL, strings.NewReader(form.Encode()), n.defaultHeaders()...)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +106,7 @@ func (n *Netease) _postLinux(apiURL string, eparams map[string]interface{}, useC
 	form := url.Values{}
 	form.Set("eparams", encryptedParam)
 
-	body, err := post(apiURL, strings.NewReader(form.Encode()), n.defaultHeaders()...)
+	body, err := utils.Post(apiURL, strings.NewReader(form.Encode()), n.defaultHeaders()...)
 	if err != nil {
 		return nil, err
 	}
@@ -124,11 +122,6 @@ func (n *Netease) postLinux(apiURL string, eparams map[string]interface{}) ([]by
 	return n._postLinux(apiURL, eparams, true)
 }
 
-// postLinuxNoCache 发送 Linux API 加密请求（不带缓存）
-func (n *Netease) postLinuxNoCache(apiURL string, eparams map[string]interface{}) ([]byte, error) {
-	return n._postLinux(apiURL, eparams, false)
-}
-
 // GetSimilarSongs 获取相似歌曲
 func (n *Netease) GetSimilarSongs(songID string) (gjson.Result, error) {
 	body, err := n.postWeapi(similarSongAPI, map[string]interface{}{
@@ -140,49 +133,4 @@ func (n *Netease) GetSimilarSongs(songID string) (gjson.Result, error) {
 		return gjson.Result{}, err
 	}
 	return gjson.ParseBytes(body), nil
-}
-
-// requestOption 是 HTTP 请求的选项函数
-type requestOption func(*http.Request)
-
-func withHeader(key, value string) requestOption {
-	return func(req *http.Request) {
-		req.Header.Set(key, value)
-	}
-}
-
-func withRandomIPHeader() requestOption {
-	return func(req *http.Request) {
-		ip := randomIP()
-		req.Header.Set("X-Real-IP", ip)
-		req.Header.Set("X-Forwarded-For", ip)
-	}
-}
-
-func randomIP() string {
-	return fmt.Sprintf("%d.%d.%d.%d",
-		rand.Intn(255)+1,
-		rand.Intn(256),
-		rand.Intn(256),
-		rand.Intn(256),
-	)
-}
-
-// post 发送 POST 请求并返回响应体
-func post(apiURL string, body io.Reader, opts ...requestOption) ([]byte, error) {
-	req, err := http.NewRequest("POST", apiURL, body)
-	if err != nil {
-		return nil, err
-	}
-	for _, opt := range opts {
-		opt(req)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	return io.ReadAll(resp.Body)
 }

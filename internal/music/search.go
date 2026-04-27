@@ -3,7 +3,6 @@ package music
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -38,10 +37,8 @@ func SearchMusic(o SearchOption) SearchResult[Music] {
 		})
 		return SearchResult[Music]{Total: min(result.Get("songCount").Int(), 100), Data: data}
 	case "qq":
-		r := QQGet("/search", url.Values{
-			"key": []string{o.Keyword},
-		})
-		return GetQQMusicResult(r.Get("data.list"), o)
+		result, _ := qqClient.Search(o.Keyword)
+		return GetQQMusicResult(result.Get("list"), o)
 	case "db":
 		t := task.Scheduler.NewTask("bilibili:search_music", map[string]string{
 			"keyword":  o.Keyword,
@@ -72,9 +69,7 @@ func SearchPlaylist(o SearchOption) SearchResult[Playlist] {
 	case "wy":
 		return searchNeteasePlaylist(o)
 	case "qq":
-		return SearchQQPlaylist(o)
-	case "qq_user":
-		return SearchQQUserPlaylist(o)
+		return searchQQPlaylist(o)
 	}
 	return SearchResult[Playlist]{}
 }
@@ -138,11 +133,6 @@ func GetSongList(o SearchOption) SearchResult[Music] {
 			})
 		}
 		return SearchResult[Music]{Total: int64(len(data)), Data: data}
-	case "qq":
-		r := QQGet("/songlist", url.Values{
-			"id": []string{o.ID},
-		})
-		return GetQQMusicResult(r.Get("data.songlist"), o)
 	}
 	return SearchResult[Music]{}
 }

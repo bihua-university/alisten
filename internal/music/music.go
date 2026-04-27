@@ -1,6 +1,10 @@
 package music
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/bihua-university/alisten/internal/music/types"
+)
 
 // GenerateWebURL generates the web URL for a music track based on source and ID
 func GenerateWebURL(source, id string) string {
@@ -16,9 +20,7 @@ func GenerateWebURL(source, id string) string {
 	}
 }
 
-type H = map[string]interface{}
-
-type Source int
+type Source = types.Source
 
 const (
 	QQ Source = iota
@@ -26,39 +28,11 @@ const (
 	KuWo
 )
 
-func (s Source) String() string {
-	switch s {
-	case QQ:
-		return "qq"
-	case NetEase:
-		return "netease"
-	case KuWo:
-		return "kuwo"
-	default:
-		return "unknown"
-	}
-}
+type Music = types.Music
 
-type Music struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Artist   string `json:"artist"`
-	Album    string `json:"album"`
-	Duration int64  `json:"duration"`
-	Cover    string `json:"cover"`
-	Source   Source `json:"source"`
-}
+type Playlist = types.Playlist
 
-type Playlist struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	PictureURL string `json:"pictureUrl"`
-	Desc       string `json:"desc"`
-	Creator    string `json:"creator"`
-	CreatorUid string `json:"creatorUid"`
-	PlayCount  int64  `json:"playCount"`
-	SongCount  int64  `json:"songCount"`
-}
+type H = map[string]interface{}
 
 type SearchOption struct {
 	ID       string

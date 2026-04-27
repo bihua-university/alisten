@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/tidwall/gjson"
+
+	"github.com/bihua-university/alisten/internal/music/utils"
 )
 
 // GetDownloadURL 获取歌曲下载链接
@@ -63,7 +65,7 @@ func (n *Netease) getEAPIDownloadURL(songID, quality string) (string, error) {
 	form := url.Values{}
 	form.Set("params", params)
 
-	body, err := post(downloadEAPI, strings.NewReader(form.Encode()), n.defaultHeaders()...)
+	body, err := utils.Post(downloadEAPI, strings.NewReader(form.Encode()), n.defaultHeaders()...)
 	if err != nil {
 		return "", err
 	}

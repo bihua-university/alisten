@@ -99,16 +99,16 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 
 func searchMusic(c *Context) {
 	c.house.Wait(WaitSearch)
-	name := c.Get("name").String()
+	keyword := c.Get("keyword").String()
 	o := music.SearchOption{
 		Source:   c.Get("source").String(),
-		Keyword:  c.Get("keyword").String(),
+		Keyword:  keyword,
 		Page:     c.Get("pageIndex").Int(),
 		PageSize: c.Get("pageSize").Int(),
 	}
 	var r music.SearchResult[music.Music]
-	if strings.HasPrefix(name, "*") {
-		o.ID = strings.TrimPrefix(name, "*")
+	if strings.HasPrefix(keyword, "*") {
+		o.ID = strings.TrimPrefix(keyword, "*")
 		r = music.GetSongList(o)
 	} else {
 		r = music.SearchMusic(o)

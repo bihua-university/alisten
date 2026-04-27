@@ -1,132 +1,54 @@
 package music
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"hash/crc32"
-	"io"
-	"net/http"
-	"net/url"
+	"strings"
 
 	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/music/kuwo"
+	"github.com/bihua-university/alisten/internal/music/qq"
 )
 
-func QQPost(u string, k H) gjson.Result {
-	marshal, err := json.Marshal(k)
-	if err != nil {
-		return gjson.Result{}
-	}
-
-	dest := fmt.Sprintf("%s%s", base.Config.QQAPI, u)
-	req, err := http.NewRequest("POST", dest, bytes.NewReader(marshal))
-	if err != nil {
-		return gjson.Result{}
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0")
-	req.Header.Set("content-type", "application/json;charset=UTF-8")
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return gjson.Result{}
-	}
-	defer response.Body.Close()
-
-	all, err := io.ReadAll(response.Body)
-	if err != nil {
-		return gjson.Result{}
-	}
-
-	return gjson.ParseBytes(all)
-}
-
-func Get(u string, k url.Values) gjson.Result {
-	dest := fmt.Sprintf("%s?%s", u, k.Encode())
-	req, err := http.NewRequest("GET", dest, nil)
-	if err != nil {
-		return gjson.Result{}
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0")
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return gjson.Result{}
-	}
-	defer response.Body.Close()
-
-	all, err := io.ReadAll(response.Body)
-	if err != nil {
-		return gjson.Result{}
-	}
-
-	return gjson.ParseBytes(all)
-}
-
-func Post(u string, k url.Values) gjson.Result {
-	response, err := http.PostForm(u, k)
-	if err != nil {
-		return gjson.Result{}
-	}
-	defer response.Body.Close()
-
-	all, err := io.ReadAll(response.Body)
-	if err != nil {
-		return gjson.Result{}
-	}
-
-	return gjson.ParseBytes(all)
-}
-
-func QQGet(u string, k url.Values) gjson.Result {
-	return Get(base.Config.QQAPI+u, k)
-}
-
-func crc(data string) string {
-	return fmt.Sprintf("%X", crc32.ChecksumIEEE([]byte(data)))
-}
+var qqClient = qq.New()
 
 func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
-	var total int64
-	var res []*Music
+	start := (o.Page - 1) * o.PageSize
+	end := start + o.PageSize
+	var data []*Music
+	var idx int64
 	r.ForEach(func(_, item gjson.Result) bool {
-		total++
-		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
-			return true
-		}
+		if idx >= start && idx < end {
+			artist := ""
+			item.Get("singer").ForEach(func(_, value gjson.Result) bool {
+				if artist != "" {
+					artist += ", "
+				}
+				artist += value.Get("name").String()
+				return true
+			})
 
-		artist := ""
-		item.Get("singer").ForEach(func(_, value gjson.Result) bool {
-			if artist != "" {
-				artist += ", "
-			}
-			artist += value.Get("name").String()
-			return true
-		})
-
-		picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", item.Get("albummid").String())
-		m := &Music{
-			ID:       item.Get("songmid").String(),
-			Name:     item.Get("songname").String(),
-			Artist:   artist,
-			Album:    item.Get("albumname").String(),
-			Duration: item.Get("interval").Int() * 1000,
-			Cover:    picture,
+			picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", item.Get("albummid").String())
+			data = append(data, &Music{
+				ID:       item.Get("songmid").String(),
+				Name:     item.Get("songname").String(),
+				Artist:   artist,
+				Album:    item.Get("albumname").String(),
+				Duration: item.Get("interval").Int() * 1000,
+				Cover:    picture,
+				Source:   QQ,
+			})
 		}
-		res = append(res, m)
+		idx++
 		return true
 	})
-	return SearchResult[Music]{Total: total, Data: res}
+	return SearchResult[Music]{Total: idx, Data: data}
 }
 
 func getQQMusic(id string) H {
-	detail := QQGet("/song", url.Values{
-		"songmid": []string{id},
-	}).Get("data.track_info")
-	lyric := QQGet("/lyric", url.Values{
-		"songmid": []string{id},
-	})
+	detail, _ := qqClient.GetSongDetail(id)
+	lyric, _ := qqClient.GetLyrics(id)
 
-	name := detail.Get("name").String()
 	artist := ""
 	detail.Get("singer").ForEach(func(_, value gjson.Result) bool {
 		if artist != "" {
@@ -135,103 +57,58 @@ func getQQMusic(id string) H {
 		artist += value.Get("name").String()
 		return true
 	})
-
-	key := artist + " " + name
-	search := Post("https://music-api.gdstudio.xyz/api.php", url.Values{
-		"types":  []string{"search"},
-		"source": []string{"kuwo"},
-		"name":   []string{key},
-		"page":   []string{"1"},
-		"count":  []string{"20"},
-		"s":      []string{crc(key)},
-	})
-	rid := search.Get("0.id").String()
-
-	// other api: https://api.limeasy.cn/kwmpro/v1/
-	download := Post("https://music-api.gdstudio.xyz/api.php", url.Values{
-		"types":  []string{"url"},
-		"source": []string{"kuwo"},
-		"id":     []string{rid},
-		"br":     []string{"320"},
-		"s":      []string{crc(rid)},
-	})
+	kuwoClient := kuwo.New()
+	music, _ := kuwoClient.Search(detail.Get("name").String() + " " + detail.Get("singer.0.name").String())
+	url := ""
+	if len(music) > 0 {
+		url, _ = kuwoClient.GetDownloadURL(music[0].ID)
+	}
 
 	ablumMid := detail.Get("album.mid").String()
 	picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", ablumMid)
 
-	h := H{
+	return H{
 		"type":       "music",
-		"url":        download.Get("url").String(),
+		"url":        url,
 		"webUrl":     GenerateWebURL("qq", id),
 		"pictureUrl": picture,
 		"duration":   detail.Get("interval").Int() * 1000,
 		"source":     "qq",
-		"lyric":      lyric.Get("data.lyric").String(),
+		"lyric":      lyric,
 		"artist":     artist,
-		"name":       name,
+		"name":       detail.Get("name").String(),
 		"album":      detail.Get("album.name").String(),
 		"id":         id,
 	}
-
-	return h
 }
 
-func SearchQQPlaylist(o SearchOption) SearchResult[Playlist] {
-	r := QQGet("/search", url.Values{
-		"key": []string{o.Keyword},
-		"t":   []string{"2"},
-	})
+func searchQQPlaylist(o SearchOption) SearchResult[Playlist] {
+	result, _ := qqClient.SearchPlaylist(o.Keyword)
 
-	var total int64
-	var res []*Playlist
-	r.Get("data.list").ForEach(func(_, item gjson.Result) bool {
-		total++
-		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
-			return true
+	start := (o.Page - 1) * o.PageSize
+	end := start + o.PageSize
+	var data []*Playlist
+	var idx int64
+	result.Get("list").ForEach(func(_, item gjson.Result) bool {
+		if idx >= start && idx < end {
+			creator := item.Get("creator")
+			cover := item.Get("imgurl").String()
+			if cover != "" && strings.HasPrefix(cover, "http://") {
+				cover = strings.Replace(cover, "http://", "https://", 1)
+			}
+			data = append(data, &Playlist{
+				ID:         item.Get("dissid").String(),
+				Name:       item.Get("dissname").String(),
+				PictureURL: cover,
+				Desc:       item.Get("introduction").String(),
+				Creator:    creator.Get("name").String(),
+				CreatorUid: creator.Get("creator_uin").String(),
+				PlayCount:  item.Get("listennum").Int(),
+				SongCount:  item.Get("song_count").Int(),
+			})
 		}
-		creator := item.Get("creator")
-		m := &Playlist{
-			ID:         item.Get("dissid").String(),
-			Name:       item.Get("dissname").String(),
-			PictureURL: item.Get("imgurl").String(),
-			Desc:       item.Get("introduction").String(),
-			Creator:    creator.Get("name").String(),
-			CreatorUid: creator.Get("creator_uin").String(),
-			PlayCount:  item.Get("listennum").Int(),
-			SongCount:  item.Get("song_count").Int(),
-		}
-		res = append(res, m)
+		idx++
 		return true
 	})
-	return SearchResult[Playlist]{Total: total, Data: res}
-}
-
-func SearchQQUserPlaylist(o SearchOption) SearchResult[Playlist] {
-	r := QQGet("/user/songlist", url.Values{
-		"id": []string{o.Keyword},
-	})
-
-	var total int64
-	var res []*Playlist
-	r.Get("data.list").ForEach(func(_, item gjson.Result) bool {
-		total++
-		if total <= (o.Page-1)*o.PageSize || int64(len(res)) > o.PageSize {
-			return true
-		}
-		creator := item.Get("creator")
-
-		m := &Playlist{
-			ID:         item.Get("tid").String(),
-			Name:       item.Get("diss_name").String(),
-			PictureURL: item.Get("diss_cover").String(),
-			Desc:       item.Get("introduction").String(),
-			Creator:    creator.Get("name").String(),
-			CreatorUid: o.Keyword,
-			PlayCount:  item.Get("listen_num").Int(),
-			SongCount:  item.Get("song_cnt").Int(),
-		}
-		res = append(res, m)
-		return true
-	})
-	return SearchResult[Playlist]{Total: total, Data: res}
+	return SearchResult[Playlist]{Total: idx, Data: data}
 }
