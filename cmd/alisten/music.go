@@ -197,6 +197,7 @@ func pickMusic(c *Context) {
 		if result.Success {
 			c.Send(base.H{
 				"name":   result.Name,
+				"artist": result.Artist,
 				"source": result.Source,
 				"id":     result.ID,
 			})
