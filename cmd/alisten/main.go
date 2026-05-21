@@ -8,12 +8,16 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/snapshot"
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
 
@@ -136,6 +140,42 @@ func main() {
 		createHouse(house.ID, house.Name, house.Desc, house.Password, true)
 	}
 
+	// Snapshot 集成：启动时恢复，退出前保存
+	snapshotURL := os.Getenv("SNAPSHOT_URL")
+	var snapClient *snapshot.Client
+	if snapshotURL != "" {
+		snapClient = snapshot.NewClient(snapshotURL)
+		if snapClient.Health() {
+			log.Printf("snapshot service connected: %s", snapshotURL)
+			restoreFromSnapshot(snapClient)
+		} else {
+			log.Printf("snapshot service not available: %s", snapshotURL)
+		}
+	}
+
+	// 优雅退出：SIGINT/SIGTERM 时保存快照
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Printf("received signal %v, saving snapshot...", sig)
+		if snapClient != nil {
+			dumpToSnapshot(snapClient)
+		}
+		os.Exit(0)
+	}()
+
+	// 定期保存快照（每 30 秒）
+	if snapClient != nil {
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				dumpToSnapshot(snapClient)
+			}
+		}()
+	}
+
 	if base.Config.Debug {
 		log.Fatal(http.ListenAndServe(":8080", handler))
 	} else {
@@ -219,6 +259,91 @@ func lastCut(s, sep string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// restoreFromSnapshot loads rooms from snapshot service and recreates them
+func restoreFromSnapshot(client *snapshot.Client) {
+	snap, err := client.Load()
+	if err != nil {
+		log.Printf("failed to load snapshot: %v", err)
+		return
+	}
+	if snap == nil || len(snap.Rooms) == 0 {
+		log.Println("no rooms to restore from snapshot")
+		return
+	}
+	restored := 0
+	for id, room := range snap.Rooms {
+		// Skip if room already exists (from config persist)
+		if GetHouse(id) != nil {
+			continue
+		}
+		createHouse(id, room.Name, room.Desc, room.Password, true)
+		// Restore playlist and mode
+		h := GetHouse(id)
+		if h == nil {
+			continue
+		}
+		h.Mu.Lock()
+		for _, s := range room.Playlist {
+			h.Playlist = append(h.Playlist, Order{
+				source: s.Source,
+				id:     s.ID,
+				user:   auth.User{Name: s.User},
+				likes:  s.Likes,
+			})
+		}
+		if room.Mode == "random" {
+			h.Mode = RandomMode
+		}
+		h.Mu.Unlock()
+		restored++
+	}
+	log.Printf("restored %d rooms from snapshot", restored)
+}
+
+// dumpToSnapshot collects all room states and saves to snapshot service
+func dumpToSnapshot(client *snapshot.Client) {
+	snap := snapshot.NewSnapshot()
+	housesMu.Lock()
+	for id, h := range houses {
+		h.Mu.Lock()
+		room := &snapshot.RoomState{
+			ID:       id,
+			Name:     h.Name,
+			Desc:     h.Desc,
+			Password: h.Password,
+			Mode:     h.Mode.String(),
+			PushTime: h.PushTime,
+		}
+		// Current song
+		if h.Current.id != "" {
+			room.Current = snapshot.Song{
+				Source: h.Current.source,
+				ID:     h.Current.id,
+				User:   h.Current.user.Name,
+				Likes:  h.Current.likes,
+			}
+		}
+		// Playlist
+		for _, o := range h.Playlist {
+			room.Playlist = append(room.Playlist, snapshot.Song{
+				Source: o.source,
+				ID:     o.id,
+				User:   o.user.Name,
+				Likes:  o.likes,
+			})
+		}
+		snap.Rooms[id] = room
+		h.Mu.Unlock()
+	}
+	housesMu.Unlock()
+
+	if err := client.SaveWithRetry(snap, 3); err != nil {
+		log.Printf("failed to save snapshot: %v", err)
+	} else {
+		log.Printf("snapshot saved (%d rooms)", len(snap.Rooms))
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
