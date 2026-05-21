@@ -9,39 +9,13 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/bihua-university/alisten/internal/snapshot"
 )
-
-// Song represents a song in the playlist
-type Song struct {
-	Source string `json:"source"`
-	ID     string `json:"id"`
-	User   string `json:"user"`
-	Likes  int    `json:"likes"`
-}
-
-// RoomState represents the state of a single room
-type RoomState struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Desc      string `json:"desc"`
-	Password  string `json:"password"`
-	Mode      string `json:"mode"`
-	Current   Song   `json:"current"`
-	Playlist  []Song `json:"playlist"`
-	PushTime  int64  `json:"pushTime"`
-	UpdatedAt int64  `json:"updatedAt"`
-}
-
-// Snapshot represents a full state snapshot
-type Snapshot struct {
-	Rooms     map[string]*RoomState `json:"rooms"`
-	SavedAt   int64                 `json:"savedAt"`
-	Version   int                   `json:"version"`
-}
 
 var (
 	mu         sync.RWMutex
-	current    *Snapshot
+	current    *snapshot.Snapshot
 	persistDir string
 )
 
@@ -82,24 +56,23 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSave(w http.ResponseWriter, r *http.Request) {
-	var snapshot Snapshot
-	if err := json.NewDecoder(r.Body).Decode(&snapshot); err != nil {
+	var snap snapshot.Snapshot
+	if err := json.NewDecoder(r.Body).Decode(&snap); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	snapshot.SavedAt = time.Now().UnixMilli()
-	snapshot.Version = 1
+	snap.SavedAt = time.Now().UnixMilli()
+	snap.Version = 1
 
 	mu.Lock()
-	current = &snapshot
+	current = &snap
 	mu.Unlock()
 
-	// Persist to disk
-	go saveToDisk(&snapshot)
+	go saveToDisk(&snap)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"savedAt": snapshot.SavedAt,
-		"rooms":   len(snapshot.Rooms),
+		"savedAt": snap.SavedAt,
+		"rooms":   len(snap.Rooms),
 	})
 }
 
@@ -109,11 +82,7 @@ func handleLoad(w http.ResponseWriter, r *http.Request) {
 	mu.RUnlock()
 
 	if snap == nil {
-		writeJSON(w, http.StatusOK, &Snapshot{
-			Rooms:   make(map[string]*RoomState),
-			SavedAt: 0,
-			Version: 1,
-		})
+		writeJSON(w, http.StatusOK, snapshot.NewSnapshot())
 		return
 	}
 	writeJSON(w, http.StatusOK, snap)
@@ -139,7 +108,7 @@ func handleGetRoom(w http.ResponseWriter, r *http.Request) {
 
 func handleUpdateRoom(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var room RoomState
+	var room snapshot.RoomState
 	if err := json.NewDecoder(r.Body).Decode(&room); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -149,10 +118,7 @@ func handleUpdateRoom(w http.ResponseWriter, r *http.Request) {
 
 	mu.Lock()
 	if current == nil {
-		current = &Snapshot{
-			Rooms:   make(map[string]*RoomState),
-			Version: 1,
-		}
+		current = snapshot.NewSnapshot()
 	}
 	current.Rooms[id] = &room
 	current.SavedAt = time.Now().UnixMilli()
@@ -181,7 +147,7 @@ func handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func saveToDisk(snap *Snapshot) {
+func saveToDisk(snap *snapshot.Snapshot) {
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		log.Printf("failed to marshal snapshot: %v", err)
@@ -209,7 +175,7 @@ func loadFromDisk() {
 		}
 		return
 	}
-	var snap Snapshot
+	var snap snapshot.Snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		log.Printf("failed to parse snapshot: %v", err)
 		return
