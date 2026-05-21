@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+      - SNAPSHOT_URL=http://alisten-snapshot:9090
     ports:
       - "8080:8080"
     networks:
@@ -24,6 +25,25 @@ services:
       - TZ=Asia/Shanghai
     networks:
       - alisten-network
+
+  # Snapshot 状态存储服务
+  alisten-snapshot:
+    build:
+      context: .
+      dockerfile: docker/snapshot.Dockerfile
+    container_name: alisten-snapshot
+    volumes:
+      - snapshot-data:/app/snapshots
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "9090:9090"
+    networks:
+      - alisten-network
+
+volumes:
+  snapshot-data:
 
 networks:
   alisten-network:
