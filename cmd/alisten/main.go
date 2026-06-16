@@ -14,6 +14,7 @@ import (
 
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/mpipe"
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
 
@@ -52,6 +53,10 @@ func main() {
 	mux.HandleFunc("POST /music/search", wrapWebsocket(searchMusic))
 	mux.HandleFunc("POST /music/searchsonglist", wrapWebsocket(searchList))
 	mux.HandleFunc("POST /music/playmode", wrapWebsocket(playMode))
+
+	// 音乐文件代理转发
+	musicPipe := mpipe.New(base.Config.Cookie, 0, 0)
+	mux.HandleFunc("GET /music/file", musicPipe.ServeHTTP)
 
 	// task long-polling
 	mux.HandleFunc("GET /tasks/poll", task.Scheduler.PollTaskHandler)
@@ -164,6 +169,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "token,content-type,accesstoken")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Accept-Ranges, Content-Range")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -249,5 +255,13 @@ func wrapWebsocket(fn func(*Context)) http.HandlerFunc {
 			data:  msg,
 		}
 		fn(ctx)
+	}
+}
+
+func localhost() string {
+	if base.Config.Debug {
+		return "http://localhost:8080"
+	} else {
+		return "https://" + base.Config.Addr
 	}
 }

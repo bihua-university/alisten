@@ -215,7 +215,7 @@ func (h *House) Update() {
 }
 
 func (h *House) Push(o Order) {
-	m := music.GetMusic(o.source, o.id, false)
+	m := proxyMusicURL(music.GetMusic(o.source, o.id, false))
 	duration, ok := m["duration"].(int64)
 	if !ok {
 		return
@@ -240,7 +240,7 @@ func (h *House) enter(c *Connection) {
 	h.lock(func() {
 		if h.Current.id != "" {
 			// 发送播放单曲
-			m := music.GetMusic(h.Current.source, h.Current.id, false)
+			m := proxyMusicURL(music.GetMusic(h.Current.source, h.Current.id, false))
 			r := merge(m, base.H{
 				"pushTime": h.PushTime,
 			})

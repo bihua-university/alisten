@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -348,7 +349,7 @@ func getCurrentMusic(c *Context) {
 	c.WithHouse(func(h *House) {
 		if h.Current.id != "" {
 			// 发送播放单曲
-			m := music.GetMusic(h.Current.source, h.Current.id, false)
+			m := proxyMusicURL(music.GetMusic(h.Current.source, h.Current.id, false))
 			r := merge(m, base.H{
 				"pushTime": h.PushTime,
 			})
@@ -442,4 +443,25 @@ func recommendMusic(c *Context) {
 		"data":      data,
 		"totalSize": len(data),
 	})
+}
+
+func proxyMusicURL(m music.H) music.H {
+	const useProxy = false
+	if !useProxy || m == nil {
+		return m
+	}
+	source, ok1 := m["source"].(string)
+	id, ok2 := m["id"].(string)
+	if !ok1 || !ok2 {
+		return m
+	}
+	fmt.Println("proxy", source, id)
+
+	if !(source == "wy" || source == "netease") {
+		return m
+	}
+
+	r := maps.Clone(m)
+	r["url"] = localhost() + "/music/file?source=netease&id=" + id
+	return r
 }

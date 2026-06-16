@@ -32,7 +32,7 @@ func post(u string, k url.Values) gjson.Result {
 }
 
 func crc(id string) string {
-	data := "music.gdstudio.org|20251104|" + strconv.FormatInt(time.Now().UnixMilli(), 10)[:9] + "|" + url.PathEscape(id)
+	data := "music.gdstudio.org|20260510|" + strconv.FormatInt(time.Now().UnixMilli(), 10)[:9] + "|" + url.PathEscape(id)
 	hash := md5.Sum([]byte(data))
 	return fmt.Sprintf("%X", hash[12:])
 }
@@ -94,6 +94,8 @@ func getQQMusic(id string) H {
 		"s":      []string{crc(key)},
 	})
 
+	fmt.Println("search: ", search.Raw)
+
 	rid := search.Get("0.id").String()
 	download := post("https://music.gdstudio.org/api.php", url.Values{
 		"types":  []string{"url"},
@@ -102,6 +104,8 @@ func getQQMusic(id string) H {
 		"br":     []string{"320"},
 		"s":      []string{crc(rid)},
 	})
+
+	fmt.Println("download: ", download.Raw)
 
 	ablumMid := detail.Get("album.mid").String()
 	picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", ablumMid)
