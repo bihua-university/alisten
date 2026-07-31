@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -226,16 +227,11 @@ func voteSkip(c *Context) {
 	c.WithHouse(func(house *House) {
 		// 检查用户是否已投票
 		user := c.User()
-		for _, existingUser := range house.VoteSkip {
-			if user == existingUser {
-				voted = true
-				return
-			}
+		if slices.Contains(house.VoteSkip, user) {
+			voted = true
+			return
 		}
-
-		if !voted {
-			house.VoteSkip = append(house.VoteSkip, user)
-		}
+		house.VoteSkip = append(house.VoteSkip, user)
 
 		// 向上取整，至少需要三分之一的用户投票
 		requiredVotes = max((len(house.Connection)+2)/3, 1)
