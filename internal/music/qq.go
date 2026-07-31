@@ -1,41 +1,17 @@
 package music
 
 import (
-	"crypto/md5"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/tidwall/gjson"
 
+	"github.com/bihua-university/alisten/internal/logx"
+	"github.com/bihua-university/alisten/internal/music/kuwo"
 	"github.com/bihua-university/alisten/internal/music/qq"
 )
 
 var qqClient = qq.New()
-
-func post(u string, k url.Values) gjson.Result {
-	response, err := http.PostForm(u, k)
-	if err != nil {
-		return gjson.Result{}
-	}
-	defer response.Body.Close()
-
-	all, err := io.ReadAll(response.Body)
-	if err != nil {
-		return gjson.Result{}
-	}
-	return gjson.ParseBytes(all)
-}
-
-func crc(id string) string {
-	data := "music.gdstudio.org|20260510|" + strconv.FormatInt(time.Now().UnixMilli(), 10)[:9] + "|" + url.PathEscape(id)
-	hash := md5.Sum([]byte(data))
-	return fmt.Sprintf("%X", hash[12:])
-}
 
 func GetQQMusicResult(r gjson.Result, o SearchOption) SearchResult[Music] {
 	start := (o.Page - 1) * o.PageSize
@@ -85,34 +61,28 @@ func getQQMusic(id string) H {
 
 	songName := detail.Get("name").String()
 	key := artist + " " + songName
-	search := post("https://music.gdstudio.org/api.php", url.Values{
-		"types":  []string{"search"},
-		"source": []string{"kuwo"},
-		"name":   []string{key},
-		"pages":  []string{"1"},
-		"count":  []string{"20"},
-		"s":      []string{crc(key)},
-	})
+	kclient := kuwo.New()
+	klist, err := kclient.Search(key)
+	if len(klist) == 0 || err != nil {
+		logx.Error("ksearch", key, err)
+		return H{}
+	}
 
-	fmt.Println("search: ", search.Raw)
-
-	rid := search.Get("0.id").String()
-	download := post("https://music.gdstudio.org/api.php", url.Values{
-		"types":  []string{"url"},
-		"source": []string{"kuwo"},
-		"id":     []string{rid},
-		"br":     []string{"320"},
-		"s":      []string{crc(rid)},
-	})
-
-	fmt.Println("download: ", download.Raw)
+	rid := klist[0].ID
+	songName = klist[0].Name
+	artist = klist[0].Artist
+	url, err := kclient.GetDownloadURL(rid)
+	if err != nil {
+		logx.Error("kdownload", key, "->", rid, err)
+		return H{}
+	}
 
 	ablumMid := detail.Get("album.mid").String()
 	picture := fmt.Sprintf("https://y.gtimg.cn/music/photo_new/T002R300x300M000%s.jpg", ablumMid)
 
 	return H{
 		"type":       "music",
-		"url":        download.Get("url").String(),
+		"url":        url,
 		"webUrl":     GenerateWebURL("qq", id),
 		"pictureUrl": picture,
 		"duration":   detail.Get("interval").Int() * 1000,

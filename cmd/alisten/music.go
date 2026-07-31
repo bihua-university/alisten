@@ -455,7 +455,6 @@ func proxyMusicURL(m music.H) music.H {
 	if !ok1 || !ok2 {
 		return m
 	}
-	fmt.Println("proxy", source, id)
 
 	if !(source == "wy" || source == "netease") {
 		return m

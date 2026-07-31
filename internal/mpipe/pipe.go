@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
+	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/music/netease"
 )
 
@@ -187,7 +187,7 @@ func (p *Pipe) serve(w http.ResponseWriter, o *outbound) {
 		w.Header().Set("Content-Length", strconv.FormatInt(o.contentLength, 10))
 	}
 	if _, err := io.Copy(w, o.r); err != nil {
-		log.Printf("mpipe stream error: %v\n", err)
+		logx.Errorf("mpipe stream error: %v", err)
 	}
 }
 

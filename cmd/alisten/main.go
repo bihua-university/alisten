@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/mpipe"
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
@@ -29,6 +29,7 @@ var upgrader = websocket.Upgrader{
 
 func main() {
 	base.InitConfig()
+	logx.SetDebug(base.Config.Debug)
 
 	task.Scheduler = task.NewServer(base.Config.Token) // 可以从配置文件读取token
 
@@ -74,7 +75,7 @@ func main() {
 
 		wc, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Print("upgrade:", err)
+			logx.Error("upgrade:", err)
 			return
 		}
 		defer wc.Close()
@@ -100,7 +101,7 @@ func main() {
 		for {
 			_, message, err := wc.ReadMessage()
 			if err != nil {
-				log.Println("read:", err)
+				logx.Error("read:", err)
 				// remove from connections and broadcast updated user list
 				house.Leave(conn)
 				break
@@ -111,16 +112,14 @@ func main() {
 				defer func() {
 					// prevent crash
 					if err := recover(); err != nil {
-						log.Println(err, "\n", string(debug.Stack()))
+						logx.Error(err, "\n", string(debug.Stack()))
 					}
 				}()
 
 				msg := gjson.ParseBytes(message)
 				handler := route[msg.Get("action").String()]
 
-				if base.Config.Debug {
-					fmt.Println("cmd:", msg.Get("action").String(), "data:", msg.Get("data").String())
-				}
+				logx.Debug("cmd:", msg.Get("action").String(), "data:", msg.Get("data").String())
 
 				if handler != nil {
 					c := &Context{
@@ -130,7 +129,7 @@ func main() {
 					}
 					handler(c)
 				} else {
-					log.Printf("unhandled message: %s", message)
+					logx.Warnf("unhandled message: %s", message)
 				}
 			}()
 		}
@@ -142,7 +141,7 @@ func main() {
 	}
 
 	if base.Config.Debug {
-		log.Fatal(http.ListenAndServe(":8080", handler))
+		logx.Fatal(http.ListenAndServe(":8080", handler))
 	} else {
 		certmagic.HTTPS([]string{base.Config.Addr}, handler)
 	}
@@ -192,8 +191,7 @@ func (l *logResponseWriter) Write(b []byte) (int, error) {
 }
 
 func (l *logResponseWriter) WriteHeader(statusCode int) {
-	t := time.Now().Format(time.DateTime)
-	fmt.Printf("[%s] %s \"%s %s\" %d\n", t, l.r.RemoteAddr, l.r.Method, l.r.URL.Path, statusCode)
+	logx.Infof("%s \"%s %s\" %d", l.r.RemoteAddr, l.r.Method, l.r.URL.Path, statusCode)
 	l.w.WriteHeader(statusCode)
 }
 
