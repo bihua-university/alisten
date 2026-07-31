@@ -15,6 +15,7 @@ import (
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/mpipe"
+	"github.com/bihua-university/alisten/internal/music"
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
 
@@ -30,6 +31,7 @@ var upgrader = websocket.Upgrader{
 func main() {
 	base.InitConfig()
 	logx.SetDebug(base.Config.Debug)
+	music.Init()
 
 	task.Scheduler = task.NewServer(base.Config.Token) // 可以从配置文件读取token
 

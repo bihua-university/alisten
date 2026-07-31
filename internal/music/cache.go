@@ -4,68 +4,33 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
-	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/task"
+	"github.com/bihua-university/alisten/internal/music/internal/types"
 )
 
-var cache = expirable.NewLRU[string, H](512, nil, 30*time.Minute)
+var cache = expirable.NewLRU[string, *Song](512, nil, 30*time.Minute)
 
-func GetMusic(source, id string, useCache bool) H {
+// GetMusic 获取一首歌的完整播放信息，带缓存。
+// useCache 为 false 时，网易云（链接有时效性）会强制刷新，其余来源仍优先读缓存。
+func GetMusic(source, id string, useCache bool) (*Song, error) {
+	src := types.ParseSource(source)
+
 	key := source + "OvO" + id
-	if useCache || source != "wy" { // 网易云链接有时效性，可以强制刷新
+	if useCache || src != types.NetEase {
 		if v, ok := cache.Get(key); ok {
-			return v
+			return v, nil
 		}
 	}
 
-	var h H
-	switch source {
-	case "wy":
-		h = getNeteaseMusic(id)
-	case "qq":
-		h = getQQMusic(id)
-	// deprecated, 可以使用common_url平替
-	case "db":
-		t := task.Scheduler.NewTask("bilibili:get_music", map[string]string{"bvid": id})
-		r := task.Scheduler.Call(t, 3*time.Minute)
-		if r != nil && r.Result != nil {
-			rg := gjson.ParseBytes(r.Result)
-			h = H{
-				"type":       rg.Get("type").String(),
-				"url":        rg.Get("url").String(),
-				"id":         id,
-				"webUrl":     rg.Get("webUrl").String(),
-				"pictureUrl": rg.Get("pictureUrl").String(),
-				"duration":   rg.Get("duration").Int(),
-				"source":     "db",
-				"artist":     rg.Get("artist").String(),
-				"name":       rg.Get("name").String(),
-				"album":      rg.Get("al.name").String(),
-			}
-		}
-	case "url_common":
-		// 目前`id`兼职`url`
-		var url string = id
-		t := task.Scheduler.NewTask("url_common:get_music", map[string]string{"url": url})
-		r := task.Scheduler.Call(t, 3*time.Minute)
-		if r != nil && r.Result != nil {
-			rg := gjson.ParseBytes(r.Result)
-			h = H{
-				"type":       rg.Get("type").String(),
-				"url":        rg.Get("url").String(),
-				"id":         id,
-				"webUrl":     url,
-				"pictureUrl": rg.Get("pictureUrl").String(),
-				"duration":   rg.Get("duration").Int(),
-				"source":     "url_common",
-				"artist":     rg.Get("artist").String(),
-				"name":       rg.Get("name").String(),
-				"album":      rg.Get("al.name").String(),
-			}
-		}
+	p, err := providerFor(src)
+	if err != nil {
+		return nil, err
+	}
+	song, err := p.GetSong(id)
+	if err != nil {
+		return nil, err
 	}
 
-	cache.Add(key, h)
-	return h
+	cache.Add(key, song)
+	return song, nil
 }

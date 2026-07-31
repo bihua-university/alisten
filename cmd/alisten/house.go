@@ -54,7 +54,7 @@ type House struct {
 	queue          syncx.UnboundedChan[[]byte]
 	close          chan struct{}
 	lastOrderTime  time.Time
-	recommander    *music.NeteaseMusicRecommander
+	recommander    *music.Recommender
 
 	// limiters
 	searchLimiter *rate.Limiter
@@ -96,7 +96,7 @@ func createHouse(houseID string, name, desc, password string, persist bool) {
 		lastActiveTime: time.Now(),
 		queue:          syncx.NewUnboundedChan[[]byte](8),
 		close:          make(chan struct{}),
-		recommander:    music.NewNeteaseMusicRecommander(),
+		recommander:    music.NewRecommender(),
 	}
 	if !house.ultimate {
 		house.searchLimiter = rate.NewLimiter(rate.Every(time.Minute), 10)
@@ -215,18 +215,19 @@ func (h *House) Update() {
 }
 
 func (h *House) Push(o Order) {
-	m := proxyMusicURL(music.GetMusic(o.source, o.id, false))
-	duration, ok := m["duration"].(int64)
-	if !ok {
+	m, err := music.GetMusic(o.source, o.id, false)
+	if err != nil {
 		return
 	}
+	m = proxyMusicURL(m)
+	duration := m.Duration
 
 	var r base.H
 	h.lock(func() {
 		now := time.Now()
 		h.PushTime = now.Add(200 * time.Millisecond).UnixMilli() // 200ms delay
 		h.End = now.Add(time.Duration(duration) * time.Millisecond)
-		r = merge(m, base.H{
+		r = merge(songToH(m), base.H{
 			"pushTime": h.PushTime,
 		})
 	})
@@ -240,8 +241,8 @@ func (h *House) enter(c *Connection) {
 	h.lock(func() {
 		if h.Current.id != "" {
 			// 发送播放单曲
-			m := proxyMusicURL(music.GetMusic(h.Current.source, h.Current.id, false))
-			r := merge(m, base.H{
+			m, _ := music.GetMusic(h.Current.source, h.Current.id, false)
+			r := merge(songToH(proxyMusicURL(m)), base.H{
 				"pushTime": h.PushTime,
 			})
 			c.Send(r)
@@ -270,15 +271,17 @@ func (h *House) playlist() []base.H {
 		if o.id == "" {
 			return
 		}
-		m := music.GetMusic(o.source, o.id, true)
-		keep := []string{"type", "source", "artist", "duration", "name", "album", "pictureUrl", "webUrl"}
-		r := make(base.H, len(keep)+1)
-		for _, k := range keep {
-			if v, ok := m[k]; ok {
-				r[k] = v
-			}
+		r := base.H{"user": o.user}
+		if song, err := music.GetMusic(o.source, o.id, true); err == nil {
+			r["type"] = song.Type
+			r["source"] = song.Source
+			r["artist"] = song.Artist
+			r["duration"] = song.Duration
+			r["name"] = song.Name
+			r["album"] = song.Album
+			r["pictureUrl"] = song.PictureURL
+			r["webUrl"] = song.WebURL
 		}
-		r["user"] = o.user
 		list = append(list, r)
 	}
 

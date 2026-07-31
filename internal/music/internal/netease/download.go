@@ -9,21 +9,19 @@ import (
 	"strings"
 
 	"github.com/tidwall/gjson"
-
-	"github.com/bihua-university/alisten/internal/music/utils"
 )
 
 // GetDownloadURL 获取歌曲下载链接
-func (n *Netease) GetDownloadURL(songID string) (string, error) {
-	if url, err := n.tryEAPIQualities(songID, "exhigh"); err == nil && url != "" {
+func (c *Client) GetDownloadURL(songID string) (string, error) {
+	if url, err := c.tryEAPIQualities(songID, "exhigh"); err == nil && url != "" {
 		return url, nil
 	}
-	return n.getWeapiDownloadURL(songID)
+	return c.getWeapiDownloadURL(songID)
 }
 
-func (n *Netease) tryEAPIQualities(songID string, qualities ...string) (string, error) {
+func (c *Client) tryEAPIQualities(songID string, qualities ...string) (string, error) {
 	for _, q := range qualities {
-		url, err := n.getEAPIDownloadURL(songID, q)
+		url, err := c.getEAPIDownloadURL(songID, q)
 		if err == nil && url != "" {
 			return url, nil
 		}
@@ -31,11 +29,11 @@ func (n *Netease) tryEAPIQualities(songID string, qualities ...string) (string, 
 	return "", errors.New("no eapi quality available")
 }
 
-func (n *Netease) getWeapiDownloadURL(songID string) (string, error) {
-	body, err := n.postWeapiNoCache(downloadAPI, map[string]interface{}{
+func (c *Client) getWeapiDownloadURL(songID string) (string, error) {
+	body, err := c.request(downloadAPI, map[string]any{
 		"ids": []string{songID},
 		"br":  320000,
-	})
+	}, false)
 	if err != nil {
 		return "", err
 	}
@@ -46,14 +44,14 @@ func (n *Netease) getWeapiDownloadURL(songID string) (string, error) {
 	return url, nil
 }
 
-func (n *Netease) getEAPIDownloadURL(songID, quality string) (string, error) {
+func (c *Client) getEAPIDownloadURL(songID, quality string) (string, error) {
 	idNum, err := strconv.Atoi(songID)
 	if err != nil {
 		return "", fmt.Errorf("invalid song id: %w", err)
 	}
 
 	headerJSON := `{"os":"pc","appver":"","osver":"","deviceId":"pyncm!","requestId":"12345678"}`
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"ids":        []int{idNum},
 		"level":      quality,
 		"encodeType": "flac",
@@ -65,7 +63,7 @@ func (n *Netease) getEAPIDownloadURL(songID, quality string) (string, error) {
 	form := url.Values{}
 	form.Set("params", params)
 
-	body, err := utils.Post(downloadEAPI, strings.NewReader(form.Encode()), n.defaultHeaders()...)
+	body, err := c.hc.Post(downloadEAPI, strings.NewReader(form.Encode()), nil)
 	if err != nil {
 		return "", err
 	}

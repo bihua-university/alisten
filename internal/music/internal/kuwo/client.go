@@ -1,12 +1,13 @@
 package kuwo
 
 import (
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/bihua-university/alisten/internal/music/types"
-	"github.com/bihua-university/alisten/internal/music/utils"
+	"github.com/bihua-university/alisten/internal/music/internal/types"
+	"github.com/bihua-university/alisten/internal/music/internal/utils"
 	"github.com/tidwall/gjson"
 )
 
@@ -14,13 +15,15 @@ const (
 	userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 )
 
-type Kuwo struct{}
+type Client struct{}
 
-func New() *Kuwo {
-	return &Kuwo{}
+func New() *Client {
+	return &Client{}
 }
 
-func (k *Kuwo) Search(keyword string) ([]types.Music, error) {
+var httpClient = &utils.Client{RandomIP: true}
+
+func (c *Client) Search(keyword string) ([]types.Music, error) {
 	params := url.Values{}
 	params.Set("vipver", "1")
 	params.Set("client", "kt")
@@ -38,10 +41,9 @@ func (k *Kuwo) Search(keyword string) ([]types.Music, error) {
 
 	apiURL := "http://www.kuwo.cn/search/searchMusicBykeyWord?" + params.Encode()
 
-	body, err := utils.Get(apiURL,
-		utils.WithHeader("User-Agent", userAgent),
-		utils.WithRandomIPHeader(),
-	)
+	body, err := httpClient.Get(apiURL, http.Header{
+		"User-Agent": {userAgent},
+	})
 	if err != nil {
 		return nil, err
 	}

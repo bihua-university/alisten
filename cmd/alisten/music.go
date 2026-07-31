@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -34,8 +35,8 @@ type PickMusicResult struct {
 func doPickMusic(house *House, id, name, source string, user auth.User) PickMusicResult {
 	// 聊天点歌只有名字，没有ID的情况
 	if id == "" {
-		r := music.SearchMusic(music.SearchOption{
-			Source:   source,
+		r, _ := music.SearchMusic(music.SearchOption{
+			Source:   music.ParseSource(source),
 			Keyword:  name,
 			Page:     1,
 			PageSize: 10,
@@ -45,9 +46,8 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 		}
 	}
 
-	m := music.GetMusic(source, id, true)
-	url, ok := m["url"].(string)
-	if !ok || url == "" {
+	m, err := music.GetMusic(source, id, true)
+	if err != nil || m.URL == "" {
 		return PickMusicResult{
 			Success: false,
 			Message: "点歌失败，无法获取音乐信息",
@@ -79,14 +79,13 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 	house.PushPlaylist()
 
 	// 获取实际的音乐名称
-	if actualName, ok := m["name"].(string); ok && actualName != "" {
-		name = actualName
+	if m.Name != "" {
+		name = m.Name
 	}
 
 	artist := "unknown"
-
-	if a, ok := m["artist"].(string); ok && a != "" {
-		artist = a
+	if m.Artist != "" {
+		artist = m.Artist
 	}
 
 	return PickMusicResult{
@@ -103,17 +102,17 @@ func searchMusic(c *Context) {
 	c.house.Wait(WaitSearch)
 	keyword := c.Get("keyword").String()
 	o := music.SearchOption{
-		Source:   c.Get("source").String(),
+		Source:   music.ParseSource(c.Get("source").String()),
 		Keyword:  keyword,
 		Page:     c.Get("pageIndex").Int(),
 		PageSize: c.Get("pageSize").Int(),
 	}
-	var r music.SearchResult[music.Music]
+	var r music.Result[music.Music]
 	if strings.HasPrefix(keyword, "*") {
 		o.ID = strings.TrimPrefix(keyword, "*")
-		r = music.GetSongList(o)
+		r, _ = music.GetSongList(o)
 	} else {
-		r = music.SearchMusic(o)
+		r, _ = music.SearchMusic(o)
 	}
 
 	if c.IsWebSocket() {
@@ -141,8 +140,11 @@ func deleteMusic(c *Context) {
 	deleted := false
 	c.WithHouse(func(h *House) {
 		for i, o := range h.Playlist {
-			m, _ := music.GetMusic(o.source, o.id, true)["name"].(string)
-			if m == name {
+			song, err := music.GetMusic(o.source, o.id, true)
+			if err != nil {
+				continue
+			}
+			if song.Name == name {
 				deleted = true
 				h.Playlist = append(h.Playlist[:i], h.Playlist[i+1:]...)
 				return
@@ -211,12 +213,8 @@ func pickMusic(c *Context) {
 
 func merge(h1, h2 base.H) base.H {
 	r := make(base.H, len(h1)+len(h2))
-	for k, v := range h1 {
-		r[k] = v
-	}
-	for k, v := range h2 {
-		r[k] = v
-	}
+	maps.Copy(r, h1)
+	maps.Copy(r, h2)
 	return r
 }
 
@@ -303,8 +301,8 @@ func goodMusic(c *Context) {
 
 func searchList(c *Context) {
 	c.house.Wait(WaitSearch)
-	r := music.SearchPlaylist(music.SearchOption{
-		Source:   c.Get("source").String(),
+	r, _ := music.SearchPlaylist(music.SearchOption{
+		Source:   music.ParseSource(c.Get("source").String()),
 		Keyword:  c.Get("keyword").String(),
 		Page:     c.Get("pageIndex").Int(),
 		PageSize: c.Get("pageSize").Int(),
@@ -345,8 +343,8 @@ func getCurrentMusic(c *Context) {
 	c.WithHouse(func(h *House) {
 		if h.Current.id != "" {
 			// 发送播放单曲
-			m := proxyMusicURL(music.GetMusic(h.Current.source, h.Current.id, false))
-			r := merge(m, base.H{
+			m, _ := music.GetMusic(h.Current.source, h.Current.id, false)
+			r := merge(songToH(proxyMusicURL(m)), base.H{
 				"pushTime": h.PushTime,
 			})
 
@@ -379,11 +377,13 @@ func getPlaylist(c *Context) {
 	var list []item
 	c.WithHouse(func(house *House) {
 		for _, o := range house.Playlist {
-			m := music.GetMusic(o.source, o.id, true)
-			name, _ := m["name"].(string)
-			artist, _ := m["artist"].(string)
-			if artist == "" {
-				artist = "unknown"
+			name := ""
+			artist := "unknown"
+			if song, err := music.GetMusic(o.source, o.id, true); err == nil {
+				name = song.Name
+				if song.Artist != "" {
+					artist = song.Artist
+				}
 			}
 			list = append(list, item{
 				Name:   name,
@@ -422,14 +422,17 @@ func recommendMusic(c *Context) {
 	recommand := c.house.recommander.Recommend(list)
 	var data []*music.Music
 	for _, id := range recommand {
-		m := music.GetMusic("wy", id, true)
+		song, err := music.GetMusic("wy", id, true)
+		if err != nil {
+			continue
+		}
 		data = append(data, &music.Music{
-			ID:       m["id"].(string),
-			Name:     m["name"].(string),
-			Artist:   m["artist"].(string),
-			Album:    m["album"].(string),
-			Duration: int64(m["duration"].(int64)),
-			Cover:    m["pictureUrl"].(string),
+			ID:       song.ID,
+			Name:     song.Name,
+			Artist:   song.Artist,
+			Album:    song.Album,
+			Duration: song.Duration,
+			Cover:    song.PictureURL,
 			Source:   music.NetEase,
 		})
 	}
@@ -441,22 +444,27 @@ func recommendMusic(c *Context) {
 	})
 }
 
-func proxyMusicURL(m music.H) music.H {
+func proxyMusicURL(m *music.Song) *music.Song {
 	const useProxy = false
 	if !useProxy || m == nil {
 		return m
 	}
-	source, ok1 := m["source"].(string)
-	id, ok2 := m["id"].(string)
-	if !ok1 || !ok2 {
+	if music.ParseSource(m.Source) != music.NetEase {
 		return m
 	}
 
-	if !(source == "wy" || source == "netease") {
-		return m
-	}
+	r := *m
+	r.URL = localhost() + "/music/file?source=netease&id=" + m.ID
+	return &r
+}
 
-	r := maps.Clone(m)
-	r["url"] = localhost() + "/music/file?source=netease&id=" + id
-	return r
+// songToH 将 Song 转为 map，便于与 base.H 合并后按既有协议下发。
+func songToH(s *music.Song) base.H {
+	if s == nil {
+		return nil
+	}
+	b, _ := json.Marshal(s)
+	var h base.H
+	_ = json.Unmarshal(b, &h)
+	return h
 }

@@ -4,15 +4,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 
 	"github.com/tidwall/gjson"
-
-	"github.com/bihua-university/alisten/internal/music/utils"
 )
 
 // GetLyrics 获取歌词
-func (q *QQ) GetLyrics(songMID string) (string, error) {
+func (c *Client) GetLyrics(songMID string) (string, error) {
 	params := url.Values{}
 	params.Set("songmid", songMID)
 	params.Set("loginUin", "0")
@@ -25,11 +24,10 @@ func (q *QQ) GetLyrics(songMID string) (string, error) {
 	params.Set("needNewCode", "0")
 
 	apiURL := "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?" + params.Encode()
-	body, err := q.getCached(apiURL,
-		utils.WithHeader("Referer", lyricReferer),
-		utils.WithHeader("User-Agent", userAgent),
-		utils.WithRandomIPHeader(),
-	)
+	body, err := c.getCached(apiURL, http.Header{
+		"Referer":    {lyricReferer},
+		"User-Agent": {userAgent},
+	})
 	if err != nil {
 		return "", err
 	}

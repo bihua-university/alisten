@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
-	"github.com/tidwall/gjson"
 )
 
-type NeteaseMusicRecommander struct {
+// Recommender 基于网易云相似歌曲接口做听歌推荐。
+type Recommender struct {
 	mu        sync.Mutex
 	history   []string                        // music id
 	recommend []string                        // recommended music id
@@ -18,8 +18,8 @@ type NeteaseMusicRecommander struct {
 
 const maxHistorySize = 32
 
-func NewNeteaseMusicRecommander() *NeteaseMusicRecommander {
-	return &NeteaseMusicRecommander{
+func NewRecommender() *Recommender {
+	return &Recommender{
 		cache: *expirable.NewLRU[string, []string](128, nil, 30*time.Minute), // 30 minutes
 	}
 }
@@ -27,7 +27,7 @@ func NewNeteaseMusicRecommander() *NeteaseMusicRecommander {
 // AddHistory 添加音乐到历史记录，保持不超过 maxHistorySize
 //
 // TODO(wdvxdr1123): use ring buffer to optimize memory usage
-func (mr *NeteaseMusicRecommander) AddHistory(m string) {
+func (mr *Recommender) AddHistory(m string) {
 	mr.mu.Lock()
 	defer mr.mu.Unlock()
 	if mr.history == nil {
@@ -49,7 +49,7 @@ func (mr *NeteaseMusicRecommander) AddHistory(m string) {
 	}
 }
 
-func (mr *NeteaseMusicRecommander) Mark(m string) {
+func (mr *Recommender) Mark(m string) {
 	mr.mu.Lock()
 	defer mr.mu.Unlock()
 	if mr.recommend == nil {
@@ -71,14 +71,14 @@ func (mr *NeteaseMusicRecommander) Mark(m string) {
 	}
 }
 
-func (mr *NeteaseMusicRecommander) Enabled() bool {
+func (mr *Recommender) Enabled() bool {
 	mr.mu.Lock()
 	defer mr.mu.Unlock()
 	return len(mr.history) >= 3
 }
 
 // Recommend 返回推荐的音乐id列表，按照添加顺序返回
-func (mr *NeteaseMusicRecommander) Recommend(playlist []string) []string {
+func (mr *Recommender) Recommend(playlist []string) []string {
 	// we use map to deduplicate music and random access
 
 	mr.mu.Lock()
@@ -110,20 +110,15 @@ func (mr *NeteaseMusicRecommander) Recommend(playlist []string) []string {
 			return
 		}
 
-		client := neteaseClient()
-		result, err := client.GetSimilarSongs(id)
+		recommend, err := neteaseAPI.GetSimilarSongs(id)
 		if err != nil {
 			return
 		}
-		recommend := make([]string, 0, 5)
-		result.Get("songs").ForEach(func(_, v gjson.Result) bool {
-			sid := v.Get("id").String()
-			recommend = append(recommend, sid)
+		for _, sid := range recommend {
 			if _, ok := visit[sid]; !ok { // don't recommend existed music
 				item[sid] = struct{}{}
 			}
-			return true
-		})
+		}
 		mr.cache.Add(id, recommend)
 	}
 

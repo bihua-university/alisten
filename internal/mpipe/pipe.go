@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/bihua-university/alisten/internal/logx"
-	"github.com/bihua-university/alisten/internal/music/netease"
+	"github.com/bihua-university/alisten/internal/music"
 )
 
 const (
@@ -129,7 +129,7 @@ func (r *shared) Read(p []byte) (int, error) {
 }
 
 func New(cookie string, size int, ttl time.Duration) *Pipe {
-	return NewWithClient(netease.New(cookie), size, ttl)
+	return NewWithClient(music.NewNeteaseDownloader(cookie), size, ttl)
 }
 
 func NewWithClient(client downloader, size int, ttl time.Duration) *Pipe {
