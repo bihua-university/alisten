@@ -65,6 +65,12 @@ func main() {
 	mux.HandleFunc("GET /tasks/poll", task.Scheduler.PollTaskHandler)
 	mux.HandleFunc("POST /tasks/result", task.Scheduler.SubmitResultHandler)
 
+	// 配置管理（需鉴权）
+	mux.HandleFunc("GET /config/cookie", getCookieHTTP)
+	mux.HandleFunc("POST /config/cookie", func(w http.ResponseWriter, r *http.Request) {
+		setCookieHTTP(w, r, musicPipe)
+	})
+
 	mux.HandleFunc("/server", func(w http.ResponseWriter, r *http.Request) {
 		houseId := r.URL.Query().Get("houseId")
 		password := r.URL.Query().Get("housePwd")
@@ -169,7 +175,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "token,content-type,accesstoken")
+		w.Header().Set("Access-Control-Allow-Headers", "token,content-type,accesstoken,authorization")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Accept-Ranges, Content-Range")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)

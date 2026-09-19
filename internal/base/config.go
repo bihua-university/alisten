@@ -1,23 +1,35 @@
 package base
 
 import (
+	"encoding/json"
 	"os"
-	"reflect"
-
-	"github.com/tidwall/gjson"
 )
 
 type H = map[string]any
 
 var Config struct {
-	Addr       string         `config:"addr"`
-	Token      string         `config:"token"`
-	Cookie     string         `config:"music.cookie"`
-	NeteaseAPI string         `config:"music.netease"`
-	QQAPI      string         `config:"music.qq"`
-	Pgsql      string         `config:"pgsql"`
-	Debug      bool           `config:"debug"`
-	Persist    []PersistHouse `config:"persist"`
+	Addr       string
+	Token      string
+	Cookie     string
+	NeteaseAPI string
+	QQAPI      string
+	Pgsql      string
+	Debug      bool
+	Persist    []PersistHouse
+}
+
+// configFile 对应 config.json 的原始结构，music 字段平铺到 Config。
+type configFile struct {
+	Addr  string `json:"addr"`
+	Token string `json:"token"`
+	Music struct {
+		Cookie  string `json:"cookie"`
+		Netease string `json:"netease"`
+		QQ      string `json:"qq"`
+	} `json:"music"`
+	Pgsql   string         `json:"pgsql"`
+	Debug   bool           `json:"debug"`
+	Persist []PersistHouse `json:"persist"`
 }
 
 type PersistHouse struct {
@@ -29,45 +41,44 @@ type PersistHouse struct {
 
 func InitConfig() {
 	file, _ := os.ReadFile("config.json")
-	g := gjson.Parse(string(file))
 
-	var (
-		v                     = reflect.ValueOf(&Config).Elem()
-		t                     = v.Type()
-		stringType            = reflect.TypeOf("")
-		boolType              = reflect.TypeOf(true)
-		slicePersistHouseType = reflect.TypeOf([]PersistHouse{})
-	)
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		name := field.Tag.Get("config")
-		if name == "" {
-			continue
-		}
-		switch field.Type {
-		case stringType:
-			v.Field(i).SetString(g.Get(name).String())
-		case boolType:
-			v.Field(i).SetBool(g.Get(name).Bool())
-		case slicePersistHouseType:
-			// 处理 persist 字段
-			persistData := g.Get(name)
-			if persistData.Exists() && persistData.IsArray() {
-				var houses []PersistHouse
-				persistData.ForEach(func(key, value gjson.Result) bool {
-					house := PersistHouse{
-						ID:       value.Get("id").String(),
-						Name:     value.Get("name").String(),
-						Desc:     value.Get("desc").String(),
-						Password: value.Get("password").String(),
-					}
-					houses = append(houses, house)
-					return true
-				})
-				v.Field(i).Set(reflect.ValueOf(houses))
-			}
-		default:
-			panic("unsupported type")
-		}
+	var c configFile
+	if err := json.Unmarshal(file, &c); err != nil {
+		return // 配置无效时保持零值，与历史行为一致
 	}
+
+	Config.Addr = c.Addr
+	Config.Token = c.Token
+	Config.Cookie = c.Music.Cookie
+	Config.NeteaseAPI = c.Music.Netease
+	Config.QQAPI = c.Music.QQ
+	Config.Pgsql = c.Pgsql
+	Config.Debug = c.Debug
+	Config.Persist = c.Persist
+}
+
+// SetCookie 更新内存中的音乐 Cookie 并持久化到 config.json。
+func SetCookie(cookie string) error {
+	Config.Cookie = cookie
+
+	data, err := os.ReadFile("config.json")
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	music, _ := m["music"].(map[string]any)
+	if music == nil {
+		music = map[string]any{}
+		m["music"] = music
+	}
+	music["cookie"] = cookie
+
+	out, err := json.MarshalIndent(m, "", "    ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile("config.json", out, 0o600)
 }

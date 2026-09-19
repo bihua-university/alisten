@@ -146,6 +146,14 @@ func NewWithClient(client downloader, size int, ttl time.Duration) *Pipe {
 	}
 }
 
+// SetCookie 更新网易云下载器的 Cookie 并清空缓存，运行时生效。
+func (p *Pipe) SetCookie(cookie string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.client = music.NewNeteaseDownloader(cookie)
+	p.cache.Purge()
+}
+
 func (p *Pipe) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -220,7 +228,11 @@ func (p *Pipe) download(id string, cs *inflighting) {
 		p.mu.Unlock()
 	}()
 
-	url, err := p.client.GetDownloadURL(id)
+	p.mu.Lock()
+	client := p.client
+	p.mu.Unlock()
+
+	url, err := client.GetDownloadURL(id)
 	if err != nil {
 		cs.err = err
 		close(cs.ready)

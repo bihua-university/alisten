@@ -63,7 +63,7 @@ func (c *Client) getEAPIDownloadURL(songID, quality string) (string, error) {
 	form := url.Values{}
 	form.Set("params", params)
 
-	body, err := c.hc.Post(downloadEAPI, strings.NewReader(form.Encode()), nil)
+	body, err := c.hc.Post(downloadEAPI, strings.NewReader(form.Encode()), c.header())
 	if err != nil {
 		return "", err
 	}

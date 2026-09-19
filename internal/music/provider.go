@@ -61,6 +61,11 @@ func Init() {
 	qqP = &qqProvider{client: qq.New(), kuwo: kuwo.New()}
 }
 
+// SetNeteaseCookie 更新网易云客户端的 Cookie，运行时生效。
+func SetNeteaseCookie(cookie string) {
+	neteaseAPI.SetCookie(cookie)
+}
+
 // providerFor 返回指定来源的 Provider。
 func providerFor(s types.Source) (Provider, error) {
 	switch s {

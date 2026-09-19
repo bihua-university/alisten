@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
@@ -28,24 +29,38 @@ const (
 
 // Client 是网易云音乐 API 客户端
 type Client struct {
-	hc    utils.Client
-	cache *expirable.LRU[string, []byte]
+	hc     utils.Client
+	cache  *expirable.LRU[string, []byte]
+	cookie atomic.Value // string，支持运行时更新
 }
 
 // New 创建一个新的网易云客户端
 func New(cookie string) *Client {
-	return &Client{
+	c := &Client{
 		hc: utils.Client{
 			Header: http.Header{
 				"Referer":      {referer},
 				"Content-Type": {"application/x-www-form-urlencoded"},
 				"User-Agent":   {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"},
-				"Cookie":       {cookie},
 			},
 			RandomIP: true,
 		},
 		cache: expirable.NewLRU[string, []byte](512, nil, 30*time.Minute),
 	}
+	c.cookie.Store(cookie)
+	return c
+}
+
+// SetCookie 更新请求携带的 Cookie，立即生效。
+func (c *Client) SetCookie(cookie string) {
+	c.cookie.Store(cookie)
+	// Cookie 变化后旧缓存可能失效，直接清空
+	c.cache.Purge()
+}
+
+// header 返回携带当前 Cookie 的请求头
+func (c *Client) header() http.Header {
+	return http.Header{"Cookie": {c.cookie.Load().(string)}}
 }
 
 func cacheKey(apiURL string, reqData map[string]any) string {
@@ -60,7 +75,7 @@ func (c *Client) post(apiURL string, form url.Values, useCache bool, cacheID str
 			return v, nil
 		}
 	}
-	body, err := c.hc.Post(apiURL, strings.NewReader(form.Encode()), nil)
+	body, err := c.hc.Post(apiURL, strings.NewReader(form.Encode()), c.header())
 	if err != nil {
 		return nil, err
 	}
