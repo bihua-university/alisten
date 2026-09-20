@@ -221,6 +221,7 @@ func (h *House) Push(o Order) {
 	}
 	m = proxyMusicURL(m)
 	duration := m.Duration
+	coef := music.GetLoudnessCoefficient(o.source, o.id)
 
 	var r base.H
 	h.lock(func() {
@@ -228,7 +229,8 @@ func (h *House) Push(o Order) {
 		h.PushTime = now.Add(200 * time.Millisecond).UnixMilli() // 200ms delay
 		h.End = now.Add(time.Duration(duration) * time.Millisecond)
 		r = merge(songToH(m), base.H{
-			"pushTime": h.PushTime,
+			"pushTime":   h.PushTime,
+			"volumeCoef": coef,
 		})
 	})
 
@@ -243,7 +245,8 @@ func (h *House) enter(c *Connection) {
 			// 发送播放单曲
 			m, _ := music.GetMusic(h.Current.source, h.Current.id, false)
 			r := merge(songToH(proxyMusicURL(m)), base.H{
-				"pushTime": h.PushTime,
+				"pushTime":   h.PushTime,
+				"volumeCoef": music.GetLoudnessCoefficient(h.Current.source, h.Current.id),
 			})
 			c.Send(r)
 		}
@@ -353,6 +356,7 @@ func (h *House) Skip(force bool) {
 			}
 			choose := rand.IntN(len(list))
 			h.Playlist = append(h.Playlist, Order{source: "wy", id: list[choose], user: auth.User{Name: "系统推荐"}})
+			music.AnalyzeLoudnessAsync("wy", list[choose]) // 后台分析响度增益系数
 		})
 		h.PushPlaylist()
 	}

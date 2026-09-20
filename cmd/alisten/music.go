@@ -75,6 +75,9 @@ func doPickMusic(house *House, id, name, source string, user auth.User) PickMusi
 		}
 	}
 
+	// 歌曲加入播放队列后,后台分析响度增益系数
+	music.AnalyzeLoudnessAsync(source, id)
+
 	house.Update()
 	house.PushPlaylist()
 
@@ -345,7 +348,8 @@ func getCurrentMusic(c *Context) {
 			// 发送播放单曲
 			m, _ := music.GetMusic(h.Current.source, h.Current.id, false)
 			r := merge(songToH(proxyMusicURL(m)), base.H{
-				"pushTime": h.PushTime,
+				"pushTime":   h.PushTime,
+				"volumeCoef": music.GetLoudnessCoefficient(h.Current.source, h.Current.id),
 			})
 
 			if c.IsWebSocket() {
