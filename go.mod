@@ -8,6 +8,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/korandiz/mpa v1.0.0
 	github.com/mewkiz/flac v1.0.14
 	github.com/tidwall/gjson v1.18.0
 	golang.org/x/sync v0.16.0

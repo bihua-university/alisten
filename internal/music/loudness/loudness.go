@@ -264,39 +264,30 @@ func energyToLoudness(e float64) float64 {
 // gateBlocks 执行 BS.1770 门控:先以 -70 LUFS 绝对门限过滤,
 // 再以剩余块均值以下 10 LU 的相对门限过滤,返回最终参与综合响度计算的平均能量。
 func gateBlocks(energies []float64) (float64, bool) {
-	const (
-		absGate   = -70.0
-		relGateLU = 10.0
-	)
-	abs := energies[:0]
-	for _, e := range energies {
-		if e > 0 && energyToLoudness(e) > absGate {
-			abs = append(abs, e)
-		}
-	}
-	if len(abs) == 0 {
+	// BS.1770 的 -70 LUFS 绝对门限,直接换算到能量域比较,省去逐块的 LUFS 对数换算。
+	absGate := math.Pow(10, (-70+0.691)/10)
+	sum, n := sumAbove(energies, absGate)
+	if n == 0 {
 		return 0, false
 	}
-
-	mean := 0.0
-	for _, e := range abs {
-		mean += e
-	}
-	mean /= float64(len(abs))
-	relGate := energyToLoudness(mean) - relGateLU
-
-	sum := 0.0
-	n := 0
-	for _, e := range abs {
-		if energyToLoudness(e) > relGate {
-			sum += e
-			n++
-		}
-	}
+	// 相对门限是均值响度以下 10 LU,即均值能量的 1/10;与绝对门限取大,保证两级门限同时生效。
+	sum, n = sumAbove(energies, max(absGate, sum/float64(n)/10))
 	if n == 0 {
 		return 0, false
 	}
 	return sum / float64(n), true
+}
+
+// sumAbove 返回 energies 中严格大于 threshold 的元素之和与个数。
+func sumAbove(energies []float64, threshold float64) (float64, int) {
+	sum, n := 0.0, 0
+	for _, e := range energies {
+		if e > threshold {
+			sum += e
+			n++
+		}
+	}
+	return sum, n
 }
 
 // biquad 是直接 I 型二阶 IIR 滤波器系数。

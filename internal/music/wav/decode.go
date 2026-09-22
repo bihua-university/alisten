@@ -12,7 +12,6 @@ import (
 	"math"
 	"time"
 
-	mp3 "github.com/hajimehoshi/go-mp3"
 	"github.com/mewkiz/flac"
 )
 
@@ -321,32 +320,6 @@ func (w *wavDataReader) fill(d *streamDecoder) error {
 		return err
 	}
 	return nil
-}
-
-// newMP3Decoder 创建 MP3 流式解码器 (go-mp3 统一输出双声道 16 bit 采样)。
-func newMP3Decoder(r io.Reader) (Decoder, error) {
-	dec, err := mp3.NewDecoder(r)
-	if err != nil {
-		return nil, fmt.Errorf("wav: 初始化 MP3 解码器失败: %w", err)
-	}
-	raw := make([]byte, 65536) // go-mp3 要求读取缓冲长度为 4 的倍数
-	d := &streamDecoder{rate: dec.SampleRate(), ch: 2}
-	d.fill = func() error {
-		n, err := dec.Read(raw)
-		// 队列一次性扩容,避免逐样本 append
-		out := d.q.buf[d.q.grow(n/2):]
-		for i := range out {
-			out[i] = float64(int16(binary.LittleEndian.Uint16(raw[i*2:]))) / 32768
-		}
-		if err != nil {
-			if err == io.EOF && len(d.q.buf) > 0 {
-				return nil
-			}
-			return err
-		}
-		return nil
-	}
-	return d, nil
 }
 
 // newFLACDecoder 创建 FLAC 流式解码器,保持原始声道数与采样率。

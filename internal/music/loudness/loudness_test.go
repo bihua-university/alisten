@@ -6,6 +6,31 @@ import (
 	"testing"
 )
 
+func TestGateBlocks(t *testing.T) {
+	absGate := math.Pow(10, (-70+0.691)/10)
+	for _, tc := range []struct {
+		name     string
+		energies []float64
+		want     float64
+		ok       bool
+	}{
+		{"empty", nil, 0, false},
+		{"absolute boundary", []float64{absGate / 2, absGate}, 0, false},
+		{"above absolute", []float64{absGate / 2, absGate * 2}, absGate * 2, true},
+		{"relative gate", []float64{0, 0.001, 1, 1}, 1, true},
+		{"relative boundary", []float64{1, 19}, 19, true},
+		// 相对门限比绝对门限低时,不能把绝对门限以下的块重新算入。
+		{"retain absolute gate", []float64{absGate / 2, absGate * 2, absGate * 3}, absGate * 2.5, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := gateBlocks(tc.energies)
+			if ok != tc.ok || math.Abs(got-tc.want) > 1e-14*math.Abs(tc.want) {
+				t.Fatalf("gateBlocks = (%g, %v), want (%g, %v)", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
 // sine 生成指定振幅的正弦波 (双声道, 交错采样)。
 func sine(sampleRate int, freq, amp, seconds float64) []float64 {
 	frames := int(float64(sampleRate) * seconds)
