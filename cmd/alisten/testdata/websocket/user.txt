@@ -1,0 +1,56 @@
+用户更新返回规范化身份，成员查询使用同一身份。
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "user.update",
+  "requestId": "user",
+  "data": {
+    "name": "alice",
+    "email": " A@B.C ",
+    "clientTimeMs": 100
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "user.update",
+  "requestId": "user",
+  "data": {
+    "clientTimeMs": 100,
+    "serverTimeMs": 1,
+    "user": {
+      "name": "alice",
+      "emailHash": "5d60d4e28066df254d5452f92c910092"
+    }
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "members.get",
+  "requestId": "members",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "members.get",
+  "requestId": "members",
+  "data": {
+    "onlineCount": 1,
+    "users": [
+      {
+        "name": "alice",
+        "emailHash": "5d60d4e28066df254d5452f92c910092"
+      }
+    ]
+  }
+}

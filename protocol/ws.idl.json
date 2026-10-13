@@ -1,0 +1,843 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alisten.local/protocol/ws.v1.schema.json",
+  "title": "Alisten WebSocket v1",
+  "description": "JSON Schema based IDL source. x-requests and x-events generate message envelopes and Go/TypeScript types. All times and durations are milliseconds.",
+  "$defs": {
+    "Source": {
+      "type": "string",
+      "enum": [
+        "netease",
+        "qq",
+        "kuwo",
+        "url_common"
+      ]
+    },
+    "PlayMode": {
+      "type": "string",
+      "enum": [
+        "sequential",
+        "random"
+      ]
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "INVALID_MESSAGE",
+        "UNSUPPORTED_VERSION",
+        "UNKNOWN_TYPE",
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "RATE_LIMITED",
+        "CONFLICT",
+        "PROVIDER_ERROR",
+        "UNAVAILABLE",
+        "INTERNAL_ERROR"
+      ]
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "Empty": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "User": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "emailHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "emailHash"
+      ]
+    },
+    "Song": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-go-name": "ID"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "name": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "album": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "DurationMS"
+        },
+        "pictureUrl": {
+          "type": "string",
+          "x-go-name": "PictureURL"
+        },
+        "webUrl": {
+          "type": "string",
+          "x-go-name": "WebURL"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "name",
+        "artist",
+        "album",
+        "durationMs",
+        "pictureUrl",
+        "webUrl"
+      ]
+    },
+    "PlayableSong": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-go-name": "ID"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "name": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "album": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "DurationMS"
+        },
+        "pictureUrl": {
+          "type": "string",
+          "x-go-name": "PictureURL"
+        },
+        "webUrl": {
+          "type": "string",
+          "x-go-name": "WebURL"
+        },
+        "url": {
+          "type": "string",
+          "x-go-name": "URL"
+        },
+        "lyric": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "name",
+        "artist",
+        "album",
+        "durationMs",
+        "pictureUrl",
+        "webUrl",
+        "url",
+        "lyric"
+      ]
+    },
+    "QueueItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "song": {
+          "$ref": "#/$defs/Song"
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        },
+        "likes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "song",
+        "user",
+        "likes"
+      ]
+    },
+    "QueueData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "current": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QueueItem"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QueueItem"
+          }
+        },
+        "onlineCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "current",
+        "items",
+        "onlineCount"
+      ]
+    },
+    "PlaybackData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "song": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlayableSong"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startedAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "StartedAtMS"
+        },
+        "volumeCoefficient": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "song",
+        "user",
+        "startedAtMs",
+        "volumeCoefficient"
+      ]
+    },
+    "MembersData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/User"
+          }
+        },
+        "onlineCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "users",
+        "onlineCount"
+      ]
+    },
+    "SettingsData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "playMode": {
+          "$ref": "#/$defs/PlayMode"
+        }
+      },
+      "required": [
+        "playMode"
+      ]
+    },
+    "SettingsPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "playMode": {
+          "$ref": "#/$defs/PlayMode"
+        }
+      },
+      "required": []
+    },
+    "ChatRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "content"
+      ]
+    },
+    "ChatData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        },
+        "sentAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "SentAtMS"
+        }
+      },
+      "required": [
+        "content",
+        "user",
+        "sentAtMs"
+      ]
+    },
+    "UserUpdateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 320
+        },
+        "clientTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "ClientTimeMS"
+        }
+      },
+      "required": [
+        "name",
+        "email",
+        "clientTimeMs"
+      ]
+    },
+    "UserUpdateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "$ref": "#/$defs/User"
+        },
+        "clientTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "ClientTimeMS"
+        },
+        "serverTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "ServerTimeMS"
+        }
+      },
+      "required": [
+        "user",
+        "clientTimeMs",
+        "serverTimeMs"
+      ]
+    },
+    "HeartbeatRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "ClientTimeMS"
+        }
+      },
+      "required": [
+        "clientTimeMs"
+      ]
+    },
+    "HeartbeatResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "ClientTimeMS"
+        },
+        "serverTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "x-go-name": "ServerTimeMS"
+        }
+      },
+      "required": [
+        "clientTimeMs",
+        "serverTimeMs"
+      ]
+    },
+    "SearchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "pageIndex": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "keyword",
+        "source",
+        "pageIndex",
+        "pageSize"
+      ]
+    },
+    "MusicSearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Song"
+          }
+        },
+        "totalSize": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "items",
+        "totalSize"
+      ]
+    },
+    "Playlist": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-go-name": "ID"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pictureUrl": {
+          "type": "string",
+          "x-go-name": "PictureURL"
+        },
+        "description": {
+          "type": "string"
+        },
+        "creator": {
+          "type": "string"
+        },
+        "creatorId": {
+          "type": "string",
+          "x-go-name": "CreatorID"
+        },
+        "playCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "songCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "name",
+        "pictureUrl",
+        "description",
+        "creator",
+        "creatorId",
+        "playCount",
+        "songCount"
+      ]
+    },
+    "PlaylistSearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Playlist"
+          }
+        },
+        "totalSize": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "items",
+        "totalSize"
+      ]
+    },
+    "PickRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-go-name": "ID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "id"
+          ]
+        },
+        {
+          "required": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "PickResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-go-name": "ID"
+        },
+        "name": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "artist",
+        "source"
+      ]
+    },
+    "SongRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-go-name": "ID"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        }
+      },
+      "required": [
+        "id",
+        "source"
+      ]
+    },
+    "LikeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-go-name": "ID"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "likes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "likes"
+      ]
+    },
+    "VoteResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currentVotes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "requiredVotes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "skipped": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "currentVotes",
+        "requiredVotes",
+        "skipped"
+      ]
+    },
+    "NoticeData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    }
+  },
+  "x-requests": [
+    {
+      "type": "heartbeat",
+      "goName": "Heartbeat",
+      "request": "HeartbeatRequest",
+      "response": "HeartbeatResult"
+    },
+    {
+      "type": "chat.send",
+      "goName": "ChatSend",
+      "request": "ChatRequest",
+      "response": "Empty"
+    },
+    {
+      "type": "user.update",
+      "goName": "UserUpdate",
+      "request": "UserUpdateRequest",
+      "response": "UserUpdateResult"
+    },
+    {
+      "type": "settings.get",
+      "goName": "SettingsGet",
+      "request": "Empty",
+      "response": "SettingsData"
+    },
+    {
+      "type": "settings.set",
+      "goName": "SettingsSet",
+      "request": "SettingsPatch",
+      "response": "SettingsData"
+    },
+    {
+      "type": "members.get",
+      "goName": "MembersGet",
+      "request": "Empty",
+      "response": "MembersData"
+    },
+    {
+      "type": "music.search",
+      "goName": "MusicSearch",
+      "request": "SearchRequest",
+      "response": "MusicSearchResult"
+    },
+    {
+      "type": "playlist.search",
+      "goName": "PlaylistSearch",
+      "request": "SearchRequest",
+      "response": "PlaylistSearchResult"
+    },
+    {
+      "type": "music.pick",
+      "goName": "MusicPick",
+      "request": "PickRequest",
+      "response": "PickResult"
+    },
+    {
+      "type": "queue.remove",
+      "goName": "QueueRemove",
+      "request": "SongRef",
+      "response": "SongRef"
+    },
+    {
+      "type": "queue.like",
+      "goName": "QueueLike",
+      "request": "SongRef",
+      "response": "LikeResult"
+    },
+    {
+      "type": "playback.skipVote",
+      "goName": "PlaybackSkipVote",
+      "request": "Empty",
+      "response": "VoteResult"
+    },
+    {
+      "type": "playback.get",
+      "goName": "PlaybackGet",
+      "request": "Empty",
+      "response": "PlaybackData"
+    },
+    {
+      "type": "queue.get",
+      "goName": "QueueGet",
+      "request": "Empty",
+      "response": "QueueData"
+    },
+    {
+      "type": "music.recommend",
+      "goName": "MusicRecommend",
+      "request": "Empty",
+      "response": "MusicSearchResult"
+    }
+  ],
+  "x-events": [
+    {
+      "type": "chat.message",
+      "goName": "ChatMessage",
+      "data": "ChatData"
+    },
+    {
+      "type": "members.updated",
+      "goName": "MembersUpdated",
+      "data": "MembersData"
+    },
+    {
+      "type": "queue.updated",
+      "goName": "QueueUpdated",
+      "data": "QueueData"
+    },
+    {
+      "type": "playback.updated",
+      "goName": "PlaybackUpdated",
+      "data": "PlaybackData"
+    },
+    {
+      "type": "settings.updated",
+      "goName": "SettingsUpdated",
+      "data": "SettingsData"
+    },
+    {
+      "type": "notice",
+      "goName": "Notice",
+      "data": "NoticeData"
+    },
+    {
+      "type": "protocol.error",
+      "goName": "ProtocolError",
+      "data": "Error"
+    }
+  ]
+}

@@ -1,0 +1,97 @@
+投票切歌后，播放查询返回下一首歌曲、点歌用户与响度系数。
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "user.update",
+  "requestId": "user",
+  "data": {
+    "name": "alice",
+    "email": " A@B.C ",
+    "clientTimeMs": 100
+  }
+}
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.pick",
+  "requestId": "pick-current",
+  "data": {
+    "source": "qq",
+    "id": "current"
+  }
+}
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.pick",
+  "requestId": "pick-netease",
+  "data": {
+    "source": "netease",
+    "id": "shared"
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "playback.skipVote",
+  "requestId": "skip",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "playback.skipVote",
+  "requestId": "skip",
+  "data": {
+    "currentVotes": 1,
+    "requiredVotes": 1,
+    "skipped": true
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "playback.get",
+  "requestId": "playback",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "playback.get",
+  "requestId": "playback",
+  "data": {
+    "song": {
+      "album": "",
+      "artist": "artist",
+      "durationMs": 3600000,
+      "id": "shared",
+      "name": "同名歌曲",
+      "pictureUrl": "",
+      "source": "netease",
+      "webUrl": "",
+      "lyric": "[00:00]lyric",
+      "url": "https://example.invalid/shared"
+    },
+    "startedAtMs": 1,
+    "user": {
+      "name": "alice",
+      "emailHash": "5d60d4e28066df254d5452f92c910092"
+    },
+    "volumeCoefficient": 0.75
+  }
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
@@ -18,6 +20,7 @@ import (
 	"github.com/bihua-university/alisten/internal/music"
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/internal/task"
+	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/gorilla/websocket"
@@ -26,23 +29,26 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
-} // use default options
+}
 
 func main() {
 	base.InitConfig()
 	logx.SetDebug(base.Config.Debug)
 	music.Init()
+	task.Scheduler = task.NewServer(base.Config.Token)
+	handler := newHandler()
+	for _, house := range base.Config.Persist {
+		createHouse(house.ID, house.Name, house.Desc, house.Password, true)
+	}
+	if base.Config.Debug {
+		logx.Fatal(http.ListenAndServe(":8080", handler))
+	} else {
+		certmagic.HTTPS([]string{base.Config.Addr}, handler)
+	}
+}
 
-	task.Scheduler = task.NewServer(base.Config.Token) // 可以从配置文件读取token
-
-	// 创建HTTP multiplexer
+func newHandler() http.Handler {
 	mux := http.NewServeMux()
-
-	// 添加CORS中间件
-	handler := logMiddleware(mux)
-	handler = corsMiddleware(handler)
-
-	// 房间相关路由
 	mux.HandleFunc("/house/add", addHouseHTTP)
 	mux.HandleFunc("/house/enter", enterHouseHTTP)
 	mux.HandleFunc("/house/search", searchHousesHTTP)
@@ -57,118 +63,113 @@ func main() {
 	mux.HandleFunc("POST /music/searchsonglist", wrapWebsocket(searchList))
 	mux.HandleFunc("POST /music/playmode", wrapWebsocket(playMode))
 
-	// 音乐文件代理转发
 	musicPipe := mpipe.New(base.Config.Cookie, 0, 0)
 	mux.HandleFunc("GET /music/file", musicPipe.ServeHTTP)
-
-	// task long-polling
 	mux.HandleFunc("GET /tasks/poll", task.Scheduler.PollTaskHandler)
 	mux.HandleFunc("POST /tasks/result", task.Scheduler.SubmitResultHandler)
-
-	// 配置管理（需鉴权）
 	mux.HandleFunc("GET /config/cookie", getCookieHTTP)
 	mux.HandleFunc("POST /config/cookie", func(w http.ResponseWriter, r *http.Request) {
 		setCookieHTTP(w, r, musicPipe)
 	})
+	mux.HandleFunc("/server", serveWebsocket)
+	return corsMiddleware(logMiddleware(mux))
+}
 
-	mux.HandleFunc("/server", func(w http.ResponseWriter, r *http.Request) {
-		houseId := r.URL.Query().Get("houseId")
-		password := r.URL.Query().Get("housePwd")
-
-		house := GetHouse(houseId)
-		if house == nil || house.Password != password {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-
-		wc, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			logx.Error("upgrade:", err)
-			return
-		}
-		defer wc.Close()
-
-		ip := maskIP(r.RemoteAddr)
-		conn := &Connection{
-			conn: wc,
-			ip:   ip,
-			user: auth.User{
-				Name: "游客(" + ip + ")",
-			},
-			send: syncx.NewUnboundedChan[[]byte](8),
-		}
-
-		house.Mu.Lock()
-		house.Connection = append(house.Connection, conn)
-		house.lastActiveTime = time.Now()
-		house.Mu.Unlock()
-
-		conn.Start()
-		house.enter(conn)
-
-		for {
-			_, message, err := wc.ReadMessage()
-			if err != nil {
-				logx.Error("read:", err)
-				// remove from connections and broadcast updated user list
-				house.Leave(conn)
-				break
-			}
-
-			// async handle command
-			go func() {
-				defer func() {
-					// prevent crash
-					if err := recover(); err != nil {
-						logx.Error(err, "\n", string(debug.Stack()))
-					}
-				}()
-
-				msg := gjson.ParseBytes(message)
-				handler := route[msg.Get("action").String()]
-
-				logx.Debug("cmd:", msg.Get("action").String(), "data:", msg.Get("data").String())
-
-				if handler != nil {
-					c := &Context{
-						conn:  conn,
-						house: house,
-						data:  msg.Get("data"),
-					}
-					handler(c)
-				} else {
-					logx.Warnf("unhandled message: %s", message)
-				}
-			}()
-		}
-	})
-
-	// 创建持久化房间
-	for _, house := range base.Config.Persist {
-		createHouse(house.ID, house.Name, house.Desc, house.Password, true)
+func serveWebsocket(w http.ResponseWriter, r *http.Request) {
+	house := GetHouse(r.URL.Query().Get("houseId"))
+	if house == nil || house.Password != r.URL.Query().Get("housePwd") {
+		w.WriteHeader(http.StatusNotFound)
+		return
 	}
+	wc, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		logx.Error("upgrade:", err)
+		return
+	}
+	wc.SetReadLimit(64 * 1024)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	ip := maskIP(r.RemoteAddr)
+	conn := &Connection{
+		conn: wc, ip: ip, user: auth.User{Name: "游客(" + ip + ")"},
+		send: syncx.NewUnboundedChan[[]byte](8), done: make(chan struct{}),
+	}
+	conn.Start()
+	defer conn.Close()
+	if !house.enter(conn) {
+		return
+	}
+	defer house.Leave(conn)
 
-	if base.Config.Debug {
-		logx.Fatal(http.ListenAndServe(":8080", handler))
-	} else {
-		certmagic.HTTPS([]string{base.Config.Addr}, handler)
+	// Bound asynchronous requests while preserving correlation and event delivery.
+	pending := make(chan struct{}, 16)
+	for {
+		frameType, raw, err := wc.ReadMessage()
+		if err != nil {
+			return
+		}
+		if frameType != websocket.TextMessage || !utf8.Valid(raw) {
+			conn.Send(protocol.Event(protocol.EventProtocolError, protocol.Error{
+				Code: protocol.ErrorCodeInvalidMessage, Message: "仅接受 UTF-8 JSON 文本消息",
+			}))
+			continue
+		}
+		message, protocolErr := protocol.DecodeRequest(raw)
+		if protocolErr != nil {
+			conn.Send(protocol.Failure(message, *protocolErr))
+			continue
+		}
+		select {
+		case pending <- struct{}{}:
+			go func(message protocol.Incoming) {
+				defer func() { <-pending }()
+				handleRequest(ctx, conn, house, message)
+			}(message)
+		default:
+			conn.Send(protocol.Failure(message, protocol.Error{
+				Code: protocol.ErrorCodeRateLimited, Message: "未完成请求过多，请稍后再试",
+			}))
+		}
 	}
 }
 
-var route = map[string]func(ctx *Context){
-	"/chat":                 chat,
-	"/setting/user":         setUser,
-	"/setting/pull":         settingSync,
-	"/music/search":         searchMusic,
-	"/music/pick":           pickMusic,
-	"/music/delete":         deleteMusic,
-	"/music/good":           goodMusic,
-	"/music/skip/vote":      voteSkip,
-	"/music/searchsonglist": searchList,
-	"/music/playmode":       playMode,
-	"/music/sync":           getCurrentMusic,
-	"/music/recommend":      recommendMusic,
-	"/house/houseuser":      houseuser,
+func handleRequest(ctx context.Context, conn *Connection, house *House, message protocol.Incoming) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	c := &Context{ctx: ctx, conn: conn, house: house, message: message, data: gjson.ParseBytes(message.Data)}
+	defer func() {
+		if err := recover(); err != nil {
+			logx.Error(err, "\n", string(debug.Stack()))
+			c.Fail(protocol.ErrorCodeInternalError, "处理请求时发生内部错误")
+		}
+		if !c.replied {
+			c.Fail(protocol.ErrorCodeInternalError, "请求处理未返回结果")
+		}
+	}()
+	handler := route[message.Type]
+	if handler == nil {
+		c.Fail(protocol.ErrorCodeInternalError, "协议请求尚未接入处理器")
+		return
+	}
+	handler(c)
+}
+
+var route = map[string]func(*Context){
+	protocol.RequestHeartbeat:        heartbeat,
+	protocol.RequestChatSend:         chat,
+	protocol.RequestUserUpdate:       setUser,
+	protocol.RequestSettingsGet:      settingSync,
+	protocol.RequestSettingsSet:      playMode,
+	protocol.RequestMembersGet:       houseuser,
+	protocol.RequestMusicSearch:      searchMusic,
+	protocol.RequestPlaylistSearch:   searchList,
+	protocol.RequestMusicPick:        pickMusic,
+	protocol.RequestQueueRemove:      deleteMusic,
+	protocol.RequestQueueLike:        goodMusic,
+	protocol.RequestPlaybackSkipVote: voteSkip,
+	protocol.RequestPlaybackGet:      getCurrentMusic,
+	protocol.RequestQueueGet:         getPlaylist,
+	protocol.RequestMusicRecommend:   recommendMusic,
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -256,6 +257,7 @@ func wrapWebsocket(fn func(*Context)) http.HandlerFunc {
 		}
 
 		ctx := &Context{
+			ctx:   r.Context(),
 			hw:    w,
 			house: house,
 			data:  msg,

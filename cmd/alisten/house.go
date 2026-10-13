@@ -10,29 +10,29 @@ import (
 
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/music"
-	"github.com/bihua-university/alisten/internal/syncx"
+	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/google/uuid"
 	"golang.org/x/time/rate"
 )
 
-type Mode int
+// Provider calls stay outside the room lock. Per-room dependencies also allow
+// the complete websocket contract to be exercised without external services.
+type musicBackend struct {
+	Load      func(string, string, bool) (*music.Song, error)
+	Search    func(music.SearchOption) (music.Result[music.Music], error)
+	Playlists func(music.SearchOption) (music.Result[music.Playlist], error)
+	SongList  func(music.SearchOption) (music.Result[music.Music], error)
+	Loudness  func(string, string) float64
+	Analyze   func(string, string)
+}
 
-const (
-	NormalMode Mode = iota
-	RandomMode
-)
-
-func (m Mode) String() string {
-	switch m {
-	case NormalMode:
-		return "sequential"
-	case RandomMode:
-		return "random"
-	default:
-		return "unknown"
-	}
+type recommender interface {
+	AddHistory(string)
+	Mark(string)
+	Recommend([]string) []string
 }
 
 type House struct {
@@ -40,7 +40,7 @@ type House struct {
 	Name       string
 	Desc       string
 	Password   string
-	Mode       Mode
+	Mode       protocol.PlayMode
 	Current    Order
 	End        time.Time
 	PushTime   int64
@@ -48,15 +48,18 @@ type House struct {
 	VoteSkip   []auth.User
 	Connection []*Connection
 
-	// private
 	ultimate       bool
 	lastActiveTime time.Time
-	queue          syncx.UnboundedChan[[]byte]
 	close          chan struct{}
+	stopped        chan struct{}
+	closed         bool
 	lastOrderTime  time.Time
-	recommander    *music.Recommender
+	recommander    recommender
+	backend        musicBackend
+	playback       protocol.PlaybackData
+	preparing      Order
+	generation     uint64
 
-	// limiters
 	searchLimiter *rate.Limiter
 	orderLimiter  *rate.Limiter
 	likeLimiter   *rate.Limiter
@@ -65,52 +68,57 @@ type House struct {
 var housesMu sync.Mutex
 var houses = make(map[string]*House)
 
+func newHouse(name, desc, password string, persist bool) *House {
+	h := &House{
+		Name:           name,
+		Desc:           desc,
+		Password:       password,
+		Mode:           protocol.PlayModeSequential,
+		Playlist:       make([]Order, 0),
+		VoteSkip:       make([]auth.User, 0),
+		ultimate:       persist,
+		lastActiveTime: time.Now(),
+		close:          make(chan struct{}),
+		stopped:        make(chan struct{}),
+		recommander:    music.NewRecommender(),
+		playback:       protocol.PlaybackData{VolumeCoefficient: 1},
+		backend: musicBackend{
+			Load: music.GetMusic, Search: music.SearchMusic, Playlists: music.SearchPlaylist,
+			SongList: music.GetSongList, Loudness: music.GetLoudnessCoefficient, Analyze: music.AnalyzeLoudnessAsync,
+		},
+	}
+	burst := 5
+	if persist {
+		burst = 30
+	} else {
+		h.searchLimiter = rate.NewLimiter(rate.Every(time.Minute), 10)
+	}
+	h.orderLimiter = rate.NewLimiter(rate.Every(time.Minute), burst)
+	h.likeLimiter = rate.NewLimiter(rate.Every(time.Minute), burst)
+	return h
+}
+
 func addHouseHTTP(w http.ResponseWriter, r *http.Request) {
-	var requestBody struct {
+	var request struct {
 		Name     string `json:"name"`
 		Desc     string `json:"desc"`
-		NeedPwd  bool   `json:"needPwd"`
 		Password string `json:"password"`
 	}
-
-	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeJSON(w, http.StatusBadRequest, base.H{"error": err.Error()})
 		return
 	}
-
-	houseID := uuid.New().String()
-	createHouse(houseID, requestBody.Name, requestBody.Desc, requestBody.Password, false)
-	writeJSON(w, http.StatusOK, base.H{"houseId": houseID})
+	id := uuid.New().String()
+	createHouse(id, request.Name, request.Desc, request.Password, false)
+	writeJSON(w, http.StatusOK, base.H{"houseId": id})
 }
 
-func createHouse(houseID string, name, desc, password string, persist bool) {
-	house := &House{
-		Name:     name,
-		Desc:     desc,
-		Password: password,
-		Mode:     NormalMode,
-		Playlist: make([]Order, 0),
-		VoteSkip: make([]auth.User, 0),
-
-		ultimate:       persist,
-		lastActiveTime: time.Now(),
-		queue:          syncx.NewUnboundedChan[[]byte](8),
-		close:          make(chan struct{}),
-		recommander:    music.NewRecommender(),
-	}
-	if !house.ultimate {
-		house.searchLimiter = rate.NewLimiter(rate.Every(time.Minute), 10)
-		house.orderLimiter = rate.NewLimiter(rate.Every(time.Minute), 5)
-		house.likeLimiter = rate.NewLimiter(rate.Every(time.Minute), 5)
-	} else {
-		house.orderLimiter = rate.NewLimiter(rate.Every(time.Minute), 30)
-		house.likeLimiter = rate.NewLimiter(rate.Every(time.Minute), 30)
-	}
+func createHouse(id, name, desc, password string, persist bool) {
+	h := newHouse(name, desc, password, persist)
 	housesMu.Lock()
-	houses[houseID] = house
+	houses[id] = h
 	housesMu.Unlock()
-
-	house.Start()
+	h.Start()
 }
 
 func GetHouse(id string) *House {
@@ -124,19 +132,16 @@ func enterHouseHTTP(w http.ResponseWriter, r *http.Request) {
 		HouseID  string `json:"id"`
 		Password string `json:"password"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeJSON(w, http.StatusBadRequest, base.H{"error": err.Error()})
 		return
 	}
-
-	house, exists := houses[request.HouseID]
-	if !exists {
+	h := GetHouse(request.HouseID)
+	if h == nil {
 		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
 		return
 	}
-
-	if house.Password != request.Password {
+	if h.Password != request.Password {
 		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
 		return
 	}
@@ -144,23 +149,22 @@ func enterHouseHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
-	var response []map[string]interface{}
+	response := make([]base.H, 0)
 	housesMu.Lock()
-	for houseId, house := range houses {
-		house.Mu.Lock()
-		response = append(response, map[string]interface{}{
-			"id":         houseId,
-			"name":       house.Name,
-			"desc":       house.Desc,
-			"population": len(house.Connection),
-			"createTime": time.Now().UnixMilli(),
-			"needPwd":    house.Password != "",
-			"ultimate":   house.ultimate,
+	for id, h := range houses {
+		h.lock(func() {
+			response = append(response, base.H{
+				"id":         id,
+				"name":       h.Name,
+				"desc":       h.Desc,
+				"population": len(h.Connection),
+				"createTime": time.Now().UnixMilli(),
+				"needPwd":    h.Password != "",
+				"ultimate":   h.ultimate,
+			})
 		})
-		house.Mu.Unlock()
 	}
 	housesMu.Unlock()
-
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -171,19 +175,14 @@ func (h *House) lock(fn func()) {
 }
 
 func (h *House) Start() {
-	ticker := time.NewTicker(time.Millisecond * 500)
 	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		defer close(h.stopped)
 		for {
 			select {
 			case <-h.close:
-				ticker.Stop()
 				return
-			case j := <-h.queue.Out():
-				h.lock(func() {
-					for _, conn := range h.Connection {
-						conn.SendRaw(j)
-					}
-				})
 			case <-ticker.C:
 				h.Update()
 			}
@@ -191,272 +190,326 @@ func (h *House) Start() {
 	}()
 }
 
-func (h *House) Broadcast(msg any) {
-	j := encJson(msg)
-	h.queue.In() <- j
+func (h *House) Broadcast(message any) {
+	h.lock(func() { h.broadcastLocked(message) })
+}
+
+// Keep state snapshots and their publication in the same critical section so
+// a slower transition cannot publish an old song after a newer one.
+func (h *House) broadcastLocked(message any) {
+	if h.closed {
+		return
+	}
+	raw, err := json.Marshal(message)
+	if err != nil {
+		logx.Error("encode room event:", err)
+		return
+	}
+	for _, conn := range h.Connection {
+		conn.SendRaw(raw)
+	}
 }
 
 func (h *House) Update() {
-	skip := false
+	expired := false
 	h.lock(func() {
-		// no song to play
-		if h.Current.id == "" || h.End.Before(time.Now()) {
-			skip = true
-		}
-		// 检查是否需要清理房间
-		if len(h.Connection) == 0 && !h.ultimate && time.Since(h.lastActiveTime) > 5*time.Minute {
-			h.closeHouse()
-		}
+		expired = !h.closed && len(h.Connection) == 0 && !h.ultimate && time.Since(h.lastActiveTime) > 5*time.Minute
 	})
-
-	if skip {
-		h.Skip(false) // 切歌
-	}
-}
-
-func (h *House) Push(o Order) {
-	m, err := music.GetMusic(o.source, o.id, false)
-	if err != nil {
+	if expired {
+		h.closeHouse()
 		return
 	}
-	m = proxyMusicURL(m)
-	duration := m.Duration
-	coef := music.GetLoudnessCoefficient(o.source, o.id)
+	h.Skip(false)
+}
 
-	var r base.H
+// nextLocked atomically reserves a song, preventing concurrent timer/vote
+// transitions from consuming the same queue or publishing an obsolete load.
+func (h *House) nextLocked(force bool) (Order, uint64, bool) {
+	if h.closed || h.preparing.id != "" {
+		return Order{}, 0, false
+	}
+	if !force && h.Current.id != "" && h.End.After(time.Now()) {
+		return Order{}, 0, false
+	}
+	if len(h.Playlist) == 0 {
+		if h.Current.id == "" {
+			return Order{}, 0, false
+		}
+		h.Current = Order{}
+		h.End = time.Time{}
+		h.PushTime = 0
+		h.VoteSkip = nil
+		h.generation++
+		h.playback = protocol.PlaybackData{VolumeCoefficient: 1}
+		h.broadcastLocked(protocol.Event(protocol.EventPlaybackUpdated, h.playback))
+		h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
+		return Order{}, h.generation, true
+	}
+	index := 0
+	if h.Mode == protocol.PlayModeRandom {
+		index = rand.IntN(len(h.Playlist))
+	}
+	play := h.Playlist[index]
+	h.Playlist = append(h.Playlist[:index], h.Playlist[index+1:]...)
+	h.preparing = play
+	h.generation++
+	h.VoteSkip = nil
+	h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
+	return play, h.generation, true
+}
+
+func (h *House) Skip(force bool) bool {
+	var play Order
+	var generation uint64
+	var changed bool
 	h.lock(func() {
-		now := time.Now()
-		h.PushTime = now.Add(200 * time.Millisecond).UnixMilli() // 200ms delay
-		h.End = now.Add(time.Duration(duration) * time.Millisecond)
-		r = merge(songToH(m), base.H{
-			"pushTime":   h.PushTime,
-			"volumeCoef": coef,
+		play, generation, changed = h.nextLocked(force)
+	})
+	if changed && play.id != "" {
+		return h.push(play, generation)
+	}
+	return changed
+}
+
+func (h *House) push(order Order, generation uint64) bool {
+	var song *music.Song
+	for {
+		var err error
+		song, err = h.backend.Load(order.source, order.id, false)
+		if err == nil && song != nil && song.URL != "" {
+			break
+		}
+		var changed bool
+		h.lock(func() {
+			if h.closed || h.generation != generation {
+				return
+			}
+			h.preparing = Order{}
+			h.broadcastLocked(protocol.Event(protocol.EventNotice, protocol.NoticeData{
+				Code: protocol.ErrorCodeProviderError, Message: "播放加载失败，无法获取音乐信息",
+			}))
+			// Continue the same skip through unavailable songs, even when the
+			// previous song has not reached its natural end yet.
+			order, generation, changed = h.nextLocked(true)
 		})
-	})
-
-	h.Broadcast(r)
-}
-
-func (h *House) enter(c *Connection) {
-	var list []base.H
-	var u []auth.User
+		if !changed || order.id == "" {
+			return changed
+		}
+	}
+	song = proxyMusicURL(song)
+	order.song = *song
+	order.song.ID, order.song.Source = order.id, order.source
+	order.song.Duration = max(order.song.Duration, 0)
+	coefficient := h.backend.Loudness(order.source, order.id)
+	applied := false
 	h.lock(func() {
-		if h.Current.id != "" {
-			// 发送播放单曲
-			m, _ := music.GetMusic(h.Current.source, h.Current.id, false)
-			r := merge(songToH(proxyMusicURL(m)), base.H{
-				"pushTime":   h.PushTime,
-				"volumeCoef": music.GetLoudnessCoefficient(h.Current.source, h.Current.id),
-			})
-			c.Send(r)
-		}
-		list = h.playlist()
-		for _, conn := range h.Connection {
-			u = append(u, conn.user)
-		}
-	})
-	// 推送播放列表
-	c.Send(base.H{
-		"type": "pick",
-		"data": list,
-	})
-	h.Broadcast(base.H{
-		"type": "house_user",
-		"data": u,
-	})
-}
-
-func (h *House) playlist() []base.H {
-	var list []base.H
-
-	// playlist don't need this information
-	push := func(o Order) {
-		if o.id == "" {
+		if h.closed || h.generation != generation {
 			return
 		}
-		r := base.H{"user": o.user}
-		if song, err := music.GetMusic(o.source, o.id, true); err == nil {
-			r["type"] = song.Type
-			r["source"] = song.Source
-			r["artist"] = song.Artist
-			r["duration"] = song.Duration
-			r["name"] = song.Name
-			r["album"] = song.Album
-			r["pictureUrl"] = song.PictureURL
-			r["webUrl"] = song.WebURL
+		now := time.Now()
+		h.Current = order
+		h.preparing = Order{}
+		h.VoteSkip = nil
+		h.PushTime = now.Add(200 * time.Millisecond).UnixMilli()
+		h.End = time.UnixMilli(h.PushTime).Add(time.Duration(order.song.Duration) * time.Millisecond)
+		playable := protocol.PlayableData(order.song)
+		user := protocol.UserData(order.user)
+		h.playback = protocol.PlaybackData{
+			Song:              &playable,
+			User:              &user,
+			StartedAtMS:       h.PushTime,
+			VolumeCoefficient: coefficient,
 		}
-		list = append(list, r)
+		h.broadcastLocked(protocol.Event(protocol.EventPlaybackUpdated, h.playback))
+		h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
+		applied = true
+	})
+	if !applied {
+		return false
 	}
+	if music.ParseSource(order.source) != music.NetEase {
+		return true
+	}
+	if order.user == (auth.User{Name: "系统推荐"}) {
+		h.recommander.Mark(order.id)
+	} else {
+		h.recommander.AddHistory(order.id)
+	}
+	h.recommendNext(generation)
+	return true
+}
 
-	push(h.Current)
-	for _, o := range h.Playlist {
-		push(o)
+func (h *House) recommendNext(generation uint64) {
+	eligible := false
+	h.lock(func() {
+		eligible = !h.closed && h.generation == generation && len(h.Playlist) == 0 && len(h.Connection) > 0 &&
+			h.lastOrderTime.Add(10*time.Second).Before(time.Now())
+	})
+	if !eligible {
+		return
 	}
-	return list
+	ids := h.recommander.Recommend(nil)
+	if len(ids) == 0 {
+		return
+	}
+	id := ids[rand.IntN(len(ids))]
+	song, err := h.backend.Load("netease", id, true)
+	if err != nil || song == nil || song.URL == "" {
+		return
+	}
+	order := Order{source: "netease", id: id, user: auth.User{Name: "系统推荐"}, song: *song}
+	order.song.ID, order.song.Source = id, order.source
+	added := false
+	h.lock(func() {
+		if h.closed || h.generation != generation || len(h.Playlist) != 0 ||
+			len(h.Connection) == 0 || h.lastOrderTime.Add(10*time.Second).After(time.Now()) ||
+			h.Current.id == id || h.preparing.id == id {
+			return
+		}
+		h.Playlist = append(h.Playlist, order)
+		h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
+		added = true
+	})
+	if added {
+		h.backend.Analyze(order.source, order.id)
+	}
+}
+
+func (h *House) membersLocked() []auth.User {
+	users := make([]auth.User, 0, len(h.Connection))
+	for _, conn := range h.Connection {
+		users = append(users, conn.GetUser())
+	}
+	return users
+}
+
+func (o Order) item() protocol.QueueItem {
+	song := o.song
+	song.ID, song.Source = o.id, o.source
+	song.Duration = max(song.Duration, 0)
+	return protocol.QueueItem{Song: protocol.SongData(song), User: protocol.UserData(o.user), Likes: int64(o.likes)}
+}
+
+func (h *House) queueLocked() protocol.QueueData {
+	data := protocol.QueueData{Items: make([]protocol.QueueItem, 0, len(h.Playlist)), OnlineCount: int64(len(h.Connection))}
+	if h.Current.id != "" {
+		current := h.Current.item()
+		data.Current = &current
+	}
+	for _, order := range h.Playlist {
+		data.Items = append(data.Items, order.item())
+	}
+	return data
+}
+
+func (h *House) enter(conn *Connection) bool {
+	h.Mu.Lock()
+	if h.closed {
+		h.Mu.Unlock()
+		return false
+	}
+	h.Connection = append(h.Connection, conn)
+	h.lastActiveTime = time.Now()
+	playback := h.playback
+	mode := h.Mode
+	queueEvent := protocol.Event(protocol.EventQueueUpdated, h.queueLocked())
+	membersEvent := protocol.Event(protocol.EventMembersUpdated, protocol.Members(h.membersLocked()))
+	conn.Send(protocol.Event(protocol.EventPlaybackUpdated, playback))
+	conn.Send(protocol.Event(protocol.EventSettingsUpdated, protocol.SettingsData{PlayMode: mode}))
+	h.broadcastLocked(queueEvent)
+	h.broadcastLocked(membersEvent)
+	h.Mu.Unlock()
+	return true
+}
+
+func (h *House) PushMembers() {
+	var event any
+	h.lock(func() {
+		event = protocol.Event(protocol.EventMembersUpdated, protocol.Members(h.membersLocked()))
+	})
+	h.Broadcast(event)
 }
 
 func (h *House) PushPlaylist() {
-	h.Mu.Lock()
-	defer h.Mu.Unlock()
-	list := h.playlist()
-	online := len(h.Connection)
-	h.Broadcast(base.H{
-		"type":         "pick",
-		"data":         list,
-		"online_count": online,
+	h.lock(func() {
+		h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
 	})
 }
 
-func (h *House) Skip(force bool) {
-	var play Order
-	change := false
+func (h *House) Leave(conn *Connection) {
+	conn.Close()
 	h.lock(func() {
-		// Outer check cannot guarantee that we need to skip
-		// because the current song may be updated by another goroutine.
-		// Double check is needed to avoid skipping twice.
-		if !force && h.Current.id != "" && h.End.After(time.Now()) {
-			return
-		}
-		if len(h.Playlist) == 0 {
-			return
-		}
-		switch h.Mode {
-		case NormalMode:
-			h.Current = h.Playlist[0]
-			h.Playlist = h.Playlist[1:]
-		case RandomMode:
-			choose := rand.IntN(len(h.Playlist))
-			h.Current = h.Playlist[choose]
-			h.Playlist = append(h.Playlist[:choose], h.Playlist[choose+1:]...)
-		default:
-			// nothing
-		}
-		play = h.Current
-		h.VoteSkip = nil
-		change = true
-	})
-	if change {
-		h.Push(play)
-		if play.source == "wy" {
-			if play.user == (auth.User{Name: "系统推荐"}) {
-				// system recommended music, also mark it to avoid recommend again
-				h.recommander.Mark(play.id)
-			} else {
-				h.recommander.AddHistory(play.id)
-			}
-		}
-		h.lock(func() {
-			if len(h.Playlist) > 0 || h.lastOrderTime.Add(10*time.Second).After(time.Now()) || len(h.Connection) == 0 {
-				return
-			}
-			// recommend a music
-			list := h.recommander.Recommend(nil)
-			if len(list) == 0 {
-				return
-			}
-			choose := rand.IntN(len(list))
-			h.Playlist = append(h.Playlist, Order{source: "wy", id: list[choose], user: auth.User{Name: "系统推荐"}})
-			music.AnalyzeLoudnessAsync("wy", list[choose]) // 后台分析响度增益系数
-		})
-		h.PushPlaylist()
-	}
-}
-
-func (h *House) Leave(c *Connection) {
-	var u []auth.User
-	h.lock(func() {
-		// 移除连接
-		for i, conn := range h.Connection {
-			if conn.conn == c.conn {
+		for i, member := range h.Connection {
+			if member == conn {
 				h.Connection = append(h.Connection[:i], h.Connection[i+1:]...)
 				break
 			}
 		}
-		// 如果房间为空，更新最后活跃时间
 		if len(h.Connection) == 0 {
 			h.lastActiveTime = time.Now()
 		}
-		// 获取更新后的用户列表
-		for _, conn := range h.Connection {
-			u = append(u, conn.user)
-		}
-
-		// free
-		close(c.send.In())
-	})
-	// 广播更新后的用户列表
-	h.Broadcast(base.H{
-		"type": "house_user",
-		"data": u,
+		h.broadcastLocked(protocol.Event(protocol.EventMembersUpdated, protocol.Members(h.membersLocked())))
+		h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
 	})
 }
 
 func houseuser(c *Context) {
-	// 初始化为非 nil 的空切片，确保通过 HTTP 返回时为 [] 而不是 null
-	u := make([]auth.User, 0)
-	c.WithHouse(func(h *House) {
-		for _, conn := range h.Connection {
-			u = append(u, conn.user)
-		}
-	})
-
-	if c.IsWebSocket() {
-		c.conn.Send(base.H{
-			"type": "house_user",
-			"data": u,
-		})
-	}
+	var users []auth.User
+	c.WithHouse(func(h *House) { users = h.membersLocked() })
 	if c.IsHTTP() {
-		c.Send(u)
+		c.Send(users)
+	} else {
+		c.Send(protocol.Members(users))
 	}
 }
 
 func settingSync(c *Context) {
-	c.conn.mu.Lock()
-	defer c.conn.mu.Unlock()
+	var data protocol.SettingsData
+	c.WithHouse(func(h *House) { data.PlayMode = h.Mode })
+	c.Send(data)
+}
 
-	c.conn.Send(base.H{
-		"type": "setting/push",
-		"data": base.H{
-			"playmode": c.house.Mode.String(),
-		},
+func (h *House) closeHouse() {
+	// Match the registry -> room lock order used by room searches.
+	housesMu.Lock()
+	defer housesMu.Unlock()
+	h.lock(func() {
+		if h.closed {
+			return
+		}
+		h.closed = true
+		close(h.close)
+		for _, conn := range h.Connection {
+			conn.Close()
+		}
+		for id, house := range houses {
+			if house == h {
+				delete(houses, id)
+			}
+		}
 	})
 }
 
-// 关闭当前房间
-func (h *House) closeHouse() {
-	// 查找当前房间的ID
-	housesMu.Lock()
-	for id, house := range houses {
-		if house == h {
-			close(h.queue.In())
-			close(h.close)
-			delete(houses, id)
-			break
-		}
-	}
-	housesMu.Unlock()
-}
-
 const (
-	WaitSearch = 1 << iota // 搜索
-	WaitOrder              // 点歌
-	WaitLike               // 点赞
+	WaitSearch = 1 << iota
+	WaitOrder
+	WaitLike
 )
 
-func (h *House) Wait(t uint8) bool {
-	if t&WaitSearch != 0 && h.searchLimiter != nil {
-		h.searchLimiter.Wait(context.Background())
+func (h *House) Wait(ctx context.Context, kind uint8) bool {
+	if ctx.Err() != nil {
+		return false
 	}
-	if t&WaitOrder != 0 && h.orderLimiter != nil {
-		if !h.orderLimiter.Allow() {
+	if kind&WaitSearch != 0 && h.searchLimiter != nil {
+		if err := h.searchLimiter.Wait(ctx); err != nil {
 			return false
 		}
 	}
-	if t&WaitLike != 0 && h.likeLimiter != nil {
-		if !h.likeLimiter.Allow() {
-			return false
-		}
+	if kind&WaitOrder != 0 && h.orderLimiter != nil && !h.orderLimiter.Allow() {
+		return false
+	}
+	if kind&WaitLike != 0 && h.likeLimiter != nil && !h.likeLimiter.Allow() {
+		return false
 	}
 	return true
 }

@@ -1,0 +1,52 @@
+加入房间时推送播放、设置、队列和成员快照。
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "playback.updated",
+  "data": {
+    "song": null,
+    "startedAtMs": 0,
+    "user": null,
+    "volumeCoefficient": 1
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "settings.updated",
+  "data": {
+    "playMode": "sequential"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "queue.updated",
+  "data": {
+    "current": null,
+    "items": [],
+    "onlineCount": 1
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "members.updated",
+  "data": {
+    "onlineCount": 1,
+    "users": [
+      {
+        "name": "游客(127.0.*.*)",
+        "emailHash": ""
+      }
+    ]
+  }
+}

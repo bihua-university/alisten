@@ -1,0 +1,20 @@
+HTTP 点歌保留原有扁平响应和 wy 来源别名。
+
+-- request --
+POST /music/pick
+{
+  "source": "wy",
+  "id": "http-current",
+  "user": {
+    "name": "http-user"
+  }
+}
+
+-- response --
+200
+{
+  "name": "同名歌曲",
+  "artist": "artist",
+  "id": "http-current",
+  "source": "wy"
+}

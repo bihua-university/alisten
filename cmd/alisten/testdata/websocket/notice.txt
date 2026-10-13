@@ -1,0 +1,38 @@
+点歌入队成功后，播放加载失败通过 notice 事件通知。
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.pick",
+  "requestId": "expired-playback",
+  "data": {
+    "source": "qq",
+    "id": "expires"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "music.pick",
+  "requestId": "expired-playback",
+  "data": {
+    "artist": "artist",
+    "id": "expires",
+    "name": "同名歌曲",
+    "source": "qq"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "notice",
+  "data": {
+    "code": "PROVIDER_ERROR",
+    "message": "播放加载失败，无法获取音乐信息"
+  }
+}

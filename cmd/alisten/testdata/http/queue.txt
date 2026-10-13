@@ -1,0 +1,69 @@
+HTTP 队列查询、按下标点赞和按歌曲名删除保持兼容。
+
+-- setup --
+POST /music/pick
+{
+  "source": "wy",
+  "id": "http-current",
+  "user": {
+    "name": "http-user"
+  }
+}
+
+-- setup --
+POST /music/pick
+{
+  "source": "wy",
+  "id": "http-queued",
+  "user": {
+    "name": "http-user"
+  }
+}
+
+-- request --
+POST /music/playlist
+{}
+
+-- response --
+200
+{
+  "playlist": [
+    {
+      "name": "同名歌曲",
+      "artist": "artist",
+      "source": "netease",
+      "id": "http-queued",
+      "likes": 0,
+      "user": {
+        "name": "http-user",
+        "email": ""
+      }
+    }
+  ]
+}
+
+-- request --
+POST /music/good
+{
+  "index": 1,
+  "name": "同名歌曲"
+}
+
+-- response --
+200
+{
+  "name": "同名歌曲",
+  "likes": 1
+}
+
+-- request --
+POST /music/delete
+{
+  "id": "同名歌曲"
+}
+
+-- response --
+200
+{
+  "name": "同名歌曲"
+}

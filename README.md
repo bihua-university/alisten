@@ -57,6 +57,8 @@ put config.json in the root directory of your project.
 
 ## API 接口
 
+WebSocket `/server` 使用统一的 [protocol v1](docs/protocol.md)，请求、响应、广播及错误均由 `protocol/ws.idl.json` 定义。旧 `{ action, data }` 消息需迁移为带 `version`、`kind`、`type` 和 `requestId` 的请求。HTTP 接口继续使用下述请求与响应结构。
+
 ### 点歌接口
 
 **POST** `/music/pick`

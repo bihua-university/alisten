@@ -1,0 +1,84 @@
+聊天返回确认并广播服务器时间；空白内容按原样广播。
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "user.update",
+  "requestId": "user",
+  "data": {
+    "name": "alice",
+    "email": " A@B.C ",
+    "clientTimeMs": 100
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "chat.send",
+  "requestId": "chat",
+  "data": {
+    "content": "hi"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "chat.send",
+  "requestId": "chat",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "chat.message",
+  "data": {
+    "content": "hi",
+    "sentAtMs": 1,
+    "user": {
+      "name": "alice",
+      "emailHash": "5d60d4e28066df254d5452f92c910092"
+    }
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "chat.send",
+  "requestId": "blank-chat",
+  "data": {
+    "content": "   "
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "chat.send",
+  "requestId": "blank-chat",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "chat.message",
+  "data": {
+    "content": "   ",
+    "sentAtMs": 1,
+    "user": {
+      "name": "alice",
+      "emailHash": "5d60d4e28066df254d5452f92c910092"
+    }
+  }
+}

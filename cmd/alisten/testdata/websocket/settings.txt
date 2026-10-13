@@ -1,0 +1,73 @@
+设置支持查询、空补丁和局部修改，并广播完整设置。
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "settings.get",
+  "requestId": "settings",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "settings.get",
+  "requestId": "settings",
+  "data": {
+    "playMode": "sequential"
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "settings.set",
+  "requestId": "empty-patch",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "settings.set",
+  "requestId": "empty-patch",
+  "data": {
+    "playMode": "sequential"
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "settings.set",
+  "requestId": "set-mode",
+  "data": {
+    "playMode": "random"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "settings.set",
+  "requestId": "set-mode",
+  "data": {
+    "playMode": "random"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "settings.updated",
+  "data": {
+    "playMode": "random"
+  }
+}

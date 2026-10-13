@@ -1,10 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
-	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music"
+	"github.com/bihua-university/alisten/protocol"
 )
 
 type Order struct {
@@ -20,355 +20,304 @@ type Order struct {
 	id     string
 	user   auth.User
 	likes  int
+	song   music.Song
 }
 
-// PickMusicResult 点歌结果
-type PickMusicResult struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Name    string `json:"name,omitempty"`
-	Artist  string `json:"artist,omitempty"`
-	Source  string `json:"source,omitempty"`
-	ID      string `json:"id,omitempty"`
-}
-
-func doPickMusic(house *House, id, name, source string, user auth.User) PickMusicResult {
-	// 聊天点歌只有名字，没有ID的情况
+func doPickMusic(ctx context.Context, h *House, request protocol.PickRequest, user auth.User) (protocol.PickResult, *protocol.Error) {
+	fail := func(code protocol.ErrorCode, message string) (protocol.PickResult, *protocol.Error) {
+		return protocol.PickResult{}, &protocol.Error{Code: code, Message: message}
+	}
+	source := music.ParseSource(string(request.Source))
+	id, name := strings.TrimSpace(request.ID), strings.TrimSpace(request.Name)
 	if id == "" {
-		r, _ := music.SearchMusic(music.SearchOption{
-			Source:   music.ParseSource(source),
-			Keyword:  name,
-			Page:     1,
-			PageSize: 10,
-		})
-		if len(r.Data) > 0 {
-			id = r.Data[0].ID
+		result, err := h.backend.Search(music.SearchOption{Source: source, Keyword: name, Page: 1, PageSize: 10})
+		if err != nil || len(result.Data) == 0 || result.Data[0] == nil || result.Data[0].ID == "" {
+			return fail(protocol.ErrorCodeProviderError, "点歌失败，无法搜索到音乐")
 		}
+		id = result.Data[0].ID
 	}
+	song, err := h.backend.Load(source.String(), id, true)
+	if err != nil || song == nil || song.URL == "" {
+		return fail(protocol.ErrorCodeProviderError, "点歌失败，无法获取音乐信息")
+	}
+	order := Order{source: source.String(), id: id, user: user, song: *song}
+	order.song.ID, order.song.Source = id, order.source
+	order.song.Duration = max(order.song.Duration, 0)
 
-	m, err := music.GetMusic(source, id, true)
-	if err != nil || m.URL == "" {
-		return PickMusicResult{
-			Success: false,
-			Message: "点歌失败，无法获取音乐信息",
+	var enqueueErr *protocol.Error
+	h.lock(func() {
+		switch {
+		case ctx.Err() != nil || h.closed:
+			enqueueErr = &protocol.Error{Code: protocol.ErrorCodeUnavailable, Message: "请求已取消或房间已关闭"}
+		case !h.ultimate && len(h.Playlist) >= 10:
+			enqueueErr = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "已超过最大点歌数量10首，请稍后再试"}
+		case h.preparing.id == id && h.preparing.source == order.source:
+			enqueueErr = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "重复点歌"}
+		default:
+			for _, queued := range h.Playlist {
+				if queued.id == id && queued.source == order.source {
+					enqueueErr = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "重复点歌"}
+					return
+				}
+			}
+			h.Playlist = append(h.Playlist, order)
+			h.lastOrderTime = time.Now()
 		}
+	})
+	if enqueueErr != nil {
+		return protocol.PickResult{}, enqueueErr
 	}
-
-	same := false
-	house.Mu.Lock()
-	for _, o := range house.Playlist {
-		if o.id == id {
-			same = true
-			break
-		}
+	h.backend.Analyze(order.source, order.id)
+	h.PushPlaylist()
+	h.Update()
+	artist := song.Artist
+	if artist == "" {
+		artist = "unknown"
 	}
-	if !same {
-		house.Playlist = append(house.Playlist, Order{source: source, id: id, user: user})
-		house.lastOrderTime = time.Now()
-	}
-	house.Mu.Unlock()
-
-	if same {
-		return PickMusicResult{
-			Success: false,
-			Message: "重复点歌",
-		}
-	}
-
-	// 歌曲加入播放队列后,后台分析响度增益系数
-	music.AnalyzeLoudnessAsync(source, id)
-
-	house.Update()
-	house.PushPlaylist()
-
-	// 获取实际的音乐名称
-	if m.Name != "" {
-		name = m.Name
-	}
-
-	artist := "unknown"
-	if m.Artist != "" {
-		artist = m.Artist
-	}
-
-	return PickMusicResult{
-		Success: true,
-		Message: "点歌成功",
-		Name:    name,
-		Artist:  artist,
-		Source:  source,
-		ID:      id,
-	}
+	return protocol.PickResult{ID: id, Source: protocol.Source(order.source), Name: song.Name, Artist: artist}, nil
 }
 
 func searchMusic(c *Context) {
-	c.house.Wait(WaitSearch)
-	keyword := c.Get("keyword").String()
-	o := music.SearchOption{
-		Source:   music.ParseSource(c.Get("source").String()),
-		Keyword:  keyword,
-		Page:     c.Get("pageIndex").Int(),
-		PageSize: c.Get("pageSize").Int(),
+	var request protocol.SearchRequest
+	if !c.Decode(&request) || !c.Wait(WaitSearch) {
+		return
 	}
-	var r music.Result[music.Music]
-	if strings.HasPrefix(keyword, "*") {
-		o.ID = strings.TrimPrefix(keyword, "*")
-		r, _ = music.GetSongList(o)
+	option := music.SearchOption{
+		Source: music.ParseSource(string(request.Source)), Keyword: request.Keyword,
+		Page: request.PageIndex, PageSize: request.PageSize,
+	}
+	var result music.Result[music.Music]
+	if strings.HasPrefix(request.Keyword, "*") {
+		option.ID = strings.TrimPrefix(request.Keyword, "*")
+		result, _ = c.house.backend.SongList(option)
 	} else {
-		r, _ = music.SearchMusic(o)
-	}
-
-	if c.IsWebSocket() {
-		c.conn.Send(base.H{
-			"type":      "search",
-			"data":      r.Data,
-			"totalSize": r.Total,
-		})
+		result, _ = c.house.backend.Search(option)
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{
-			"list":      r.Data,
-			"totalSize": r.Total,
-		})
+		c.Send(base.H{"list": result.Data, "totalSize": result.Total})
+	} else {
+		c.Send(protocol.SearchData(result.Data, result.Total))
 	}
 }
 
 func deleteMusic(c *Context) {
-	if !c.house.Wait(WaitOrder) { // 与点歌共用
-		c.Info("操作过于频繁，请稍后再试")
+	if !c.Wait(WaitOrder) {
 		return
 	}
-	name := c.Get("id").String()
-
-	deleted := false
+	var request protocol.SongRef
+	legacy := c.IsHTTP() && c.Get("source").String() == ""
+	if !legacy && !c.Decode(&request) {
+		return
+	}
+	var removed Order
 	c.WithHouse(func(h *House) {
-		for i, o := range h.Playlist {
-			song, err := music.GetMusic(o.source, o.id, true)
-			if err != nil {
-				continue
+		for i, order := range h.Playlist {
+			matches := order.id == request.ID && order.source == music.ParseSource(string(request.Source)).String()
+			if legacy {
+				matches = order.song.Name == c.Get("id").String()
 			}
-			if song.Name == name {
-				deleted = true
+			if matches {
+				removed = order
 				h.Playlist = append(h.Playlist[:i], h.Playlist[i+1:]...)
+				h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
 				return
 			}
 		}
 	})
-
-	if deleted {
-		c.house.PushPlaylist()
-		if c.IsWebSocket() {
-			c.Chat("删除音乐 " + name)
-		}
-		if c.IsHTTP() {
-			c.Send(base.H{"name": name})
-		}
-	} else if c.IsHTTP() {
-		writeJSON(c.hw, http.StatusNotFound, base.H{"error": "未找到要删除的音乐"})
+	if removed.id == "" {
+		c.Fail(protocol.ErrorCodeNotFound, "未找到要删除的音乐")
+		return
+	}
+	if c.IsHTTP() {
+		c.Send(base.H{"name": removed.song.Name})
+	} else {
+		c.Send(protocol.SongRef{ID: removed.id, Source: protocol.Source(removed.source)})
+		c.Chat("删除音乐 " + removed.song.Name)
 	}
 }
 
 func pickMusic(c *Context) {
-	if !c.house.Wait(WaitOrder) {
-		c.Info("操作过于频繁，请稍后再试")
+	var request protocol.PickRequest
+	if !c.Decode(&request) || !c.Wait(WaitOrder) {
 		return
 	}
-
-	// 限制点歌数量
-	exceed := false
-	c.WithHouse(func(h *House) {
-		if h.ultimate {
-			return
-		}
-		if len(h.Playlist) >= 10 {
-			exceed = true
-		}
-	})
-	if exceed {
-		c.Info("已超过最大点歌数量10首,请稍后再试!")
+	result, err := doPickMusic(c.ctx, c.house, request, c.User())
+	if err != nil {
+		c.Fail(err.Code, err.Message)
 		return
-	}
-
-	id := c.Get("id").String()
-	name := c.Get("name").String()
-	source := c.Get("source").String()
-
-	// 调用核心点歌逻辑
-	result := doPickMusic(c.house, id, name, source, c.User())
-
-	if result.Success && c.IsWebSocket() {
-		// Push new playlist
-		c.Chat("点歌 " + result.Name)
 	}
 	if c.IsHTTP() {
-		if result.Success {
-			c.Send(base.H{
-				"name":   result.Name,
-				"artist": result.Artist,
-				"source": result.Source,
-				"id":     result.ID,
-			})
-		} else {
-			writeJSON(c.hw, http.StatusBadRequest, base.H{"error": result.Message})
-		}
+		c.Send(base.H{"name": result.Name, "artist": result.Artist, "id": result.ID, "source": string(request.Source)})
+	} else {
+		c.Send(result)
+		c.Chat("点歌 " + result.Name)
 	}
-}
-
-func merge(h1, h2 base.H) base.H {
-	r := make(base.H, len(h1)+len(h2))
-	maps.Copy(r, h1)
-	maps.Copy(r, h2)
-	return r
 }
 
 func voteSkip(c *Context) {
-	voted := false
-	requiredVotes := 0
-	voteCount := 0
-	c.WithHouse(func(house *House) {
-		// 检查用户是否已投票
-		user := c.User()
-		if slices.Contains(house.VoteSkip, user) {
-			voted = true
+	user := c.User()
+	var result protocol.VoteResult
+	var err *protocol.Error
+	var play Order
+	var generation uint64
+	c.WithHouse(func(h *House) {
+		if h.closed {
+			err = &protocol.Error{Code: protocol.ErrorCodeUnavailable, Message: "房间已关闭"}
 			return
 		}
-		house.VoteSkip = append(house.VoteSkip, user)
-
-		// 向上取整，至少需要三分之一的用户投票
-		requiredVotes = max((len(house.Connection)+2)/3, 1)
-		voteCount = len(c.house.VoteSkip)
-	})
-
-	if voted {
-		if c.IsHTTP() {
-			writeJSON(c.hw, http.StatusBadRequest, base.H{"error": "您已经投过票了"})
+		if h.preparing.id != "" {
+			err = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "正在切歌，请稍后再试"}
+			return
 		}
+		if h.Current.id == "" {
+			err = &protocol.Error{Code: protocol.ErrorCodeNotFound, Message: "当前没有播放音乐"}
+			return
+		}
+		if slices.Contains(h.VoteSkip, user) {
+			err = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "您已经投过票了"}
+			return
+		}
+		h.VoteSkip = append(h.VoteSkip, user)
+		result.CurrentVotes = int64(len(h.VoteSkip))
+		result.RequiredVotes = int64(max((len(h.Connection)+2)/3, 1))
+		if result.CurrentVotes >= result.RequiredVotes {
+			play, generation, result.Skipped = h.nextLocked(true)
+		}
+	})
+	if err != nil {
+		c.Fail(err.Code, err.Message)
 		return
 	}
-
-	// 如果票数达到要求，直接切歌
-	if voteCount >= requiredVotes {
-		c.house.Skip(true)
-		if c.IsWebSocket() {
-			c.Chat("投票切歌成功")
-		}
-		if c.IsHTTP() {
-			c.Send(base.H{"current_votes": voteCount, "required_votes": requiredVotes})
-		}
+	if result.Skipped && play.id != "" {
+		result.Skipped = c.house.push(play, generation)
+	}
+	if c.IsHTTP() {
+		c.Send(base.H{"current_votes": result.CurrentVotes, "required_votes": result.RequiredVotes})
 	} else {
-		if c.IsWebSocket() {
-			c.Chat(fmt.Sprintf("投票切歌 (%d/%d)", voteCount, requiredVotes))
-		}
-		if c.IsHTTP() {
-			c.Send(base.H{"current_votes": voteCount, "required_votes": requiredVotes})
+		c.Send(result)
+		if result.Skipped {
+			c.Chat("投票切歌成功")
+		} else {
+			c.Chat(fmt.Sprintf("投票切歌 (%d/%d)", result.CurrentVotes, result.RequiredVotes))
 		}
 	}
 }
 
 func goodMusic(c *Context) {
-	if !c.house.Wait(WaitLike) {
-		c.Info("操作过于频繁，请稍后再试")
+	if !c.Wait(WaitLike) {
 		return
 	}
-	index := c.Get("index").Int()
-	name := c.Get("name").String()
-	if index == 0 {
+	var request protocol.SongRef
+	legacy := c.IsHTTP() && c.Get("source").String() == ""
+	if !legacy && !c.Decode(&request) {
 		return
 	}
-	index -= 1 // 跳过正在播放的
-	change := false
-	likes := 0
-	c.WithHouse(func(house *House) {
-		// 点赞
-		if int(index) < len(house.Playlist) {
-			house.Playlist[index].likes += 1
-			likes = house.Playlist[index].likes
-			sort.SliceStable(house.Playlist, func(i, j int) bool {
-				return house.Playlist[i].likes > house.Playlist[j].likes
-			})
-			change = true
+	var liked Order
+	c.WithHouse(func(h *House) {
+		index := -1
+		if legacy {
+			// The HTTP index includes the current song at index zero.
+			value := c.Get("index").Int()
+			if value >= 1 && value <= int64(len(h.Playlist)) {
+				index = int(value - 1)
+			}
+		} else {
+			for i, order := range h.Playlist {
+				if order.id == request.ID && order.source == music.ParseSource(string(request.Source)).String() {
+					index = i
+					break
+				}
+			}
 		}
+		if index < 0 {
+			return
+		}
+		h.Playlist[index].likes++
+		liked = h.Playlist[index]
+		sort.SliceStable(h.Playlist, func(i, j int) bool { return h.Playlist[i].likes > h.Playlist[j].likes })
+		h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
 	})
-	if change {
-		c.house.PushPlaylist()
-		if c.IsWebSocket() {
-			c.Chat(fmt.Sprintf("%s 点赞%d", name, likes))
-		}
-		if c.IsHTTP() {
-			c.Send(base.H{"name": name, "likes": likes})
-		}
-	} else if c.IsHTTP() {
-		writeJSON(c.hw, http.StatusNotFound, base.H{"error": "未找到对应音乐"})
+	if liked.id == "" {
+		c.Fail(protocol.ErrorCodeNotFound, "未找到对应音乐")
+		return
+	}
+	if c.IsHTTP() {
+		c.Send(base.H{"name": liked.song.Name, "likes": liked.likes})
+	} else {
+		c.Send(protocol.LikeResult{ID: liked.id, Source: protocol.Source(liked.source), Likes: int64(liked.likes)})
+		c.Chat(fmt.Sprintf("%s 点赞%d", liked.song.Name, liked.likes))
 	}
 }
 
 func searchList(c *Context) {
-	c.house.Wait(WaitSearch)
-	r, _ := music.SearchPlaylist(music.SearchOption{
-		Source:   music.ParseSource(c.Get("source").String()),
-		Keyword:  c.Get("keyword").String(),
-		Page:     c.Get("pageIndex").Int(),
-		PageSize: c.Get("pageSize").Int(),
-	})
-
-	if c.IsWebSocket() {
-		c.conn.Send(base.H{
-			"type":      "searchlist",
-			"data":      r.Data,
-			"totalSize": r.Total,
-		})
+	var request protocol.SearchRequest
+	if !c.Decode(&request) || !c.Wait(WaitSearch) {
+		return
 	}
+	result, _ := c.house.backend.Playlists(music.SearchOption{
+		Source: music.ParseSource(string(request.Source)), Keyword: request.Keyword,
+		Page: request.PageIndex, PageSize: request.PageSize,
+	})
 	if c.IsHTTP() {
-		c.Send(base.H{
-			"list":      r.Data,
-			"totalSize": r.Total,
-		})
+		c.Send(base.H{"list": result.Data, "totalSize": result.Total})
+	} else {
+		c.Send(protocol.PlaylistData(result.Data, result.Total, string(request.Source)))
 	}
 }
 
 func playMode(c *Context) {
-	mode := c.Get("mode").String()
-	c.WithHouse(func(house *House) {
-		switch mode {
-		case "sequential":
-			house.Mode = NormalMode
-		case "random":
-			house.Mode = RandomMode
-		}
-	})
-
+	var request protocol.SettingsPatch
 	if c.IsHTTP() {
-		c.Send(base.H{"mode": mode})
+		request.PlayMode = protocol.PlayMode(c.Get("mode").String())
+	} else if !c.Decode(&request) {
+		return
+	}
+	var settings protocol.SettingsData
+	var event any
+	c.WithHouse(func(h *House) {
+		switch request.PlayMode {
+		case protocol.PlayModeSequential, protocol.PlayModeRandom:
+			h.Mode = request.PlayMode
+			event = protocol.Event(protocol.EventSettingsUpdated, protocol.SettingsData{PlayMode: h.Mode})
+		}
+		settings.PlayMode = h.Mode
+	})
+	if event != nil {
+		c.house.Broadcast(event)
+	}
+	if c.IsHTTP() {
+		c.Send(base.H{"mode": settings.PlayMode})
+	} else {
+		c.Send(settings)
 	}
 }
 
 func getCurrentMusic(c *Context) {
+	var playback protocol.PlaybackData
+	var current Order
 	c.WithHouse(func(h *House) {
-		if h.Current.id != "" {
-			// 发送播放单曲
-			m, _ := music.GetMusic(h.Current.source, h.Current.id, false)
-			r := merge(songToH(proxyMusicURL(m)), base.H{
-				"pushTime":   h.PushTime,
-				"volumeCoef": music.GetLoudnessCoefficient(h.Current.source, h.Current.id),
-			})
-
-			if c.IsWebSocket() {
-				c.conn.Send(r)
-			}
-			if c.IsHTTP() {
-				// ensure user who picked the song is included in HTTP response
-				// r already merged music fields and pushTime; add user if available
-				r["user"] = h.Current.user
-				c.Send(r)
-			}
-		} else if c.IsHTTP() {
-			writeJSON(c.hw, http.StatusNotFound, base.H{"error": "当前没有播放音乐"})
-		}
+		playback, current = h.playback, h.Current
 	})
+	if c.IsWebSocket() {
+		c.Send(playback)
+		return
+	}
+	if playback.Song == nil {
+		c.Fail(protocol.ErrorCodeNotFound, "当前没有播放音乐")
+		return
+	}
+	message := songToH(&current.song)
+	message["pushTime"], message["volumeCoef"], message["user"] = playback.StartedAtMS, playback.VolumeCoefficient, current.user
+	c.Send(message)
 }
 
 func getPlaylist(c *Context) {
-	// build playlist response
+	if c.IsWebSocket() {
+		var data protocol.QueueData
+		c.WithHouse(func(h *House) { data = h.queueLocked() })
+		c.Send(data)
+		return
+	}
 	type item struct {
 		Name   string    `json:"name"`
 		Artist string    `json:"artist"`
@@ -377,98 +326,69 @@ func getPlaylist(c *Context) {
 		Likes  int       `json:"likes"`
 		User   auth.User `json:"user"`
 	}
-
-	var list []item
-	c.WithHouse(func(house *House) {
-		for _, o := range house.Playlist {
-			name := ""
-			artist := "unknown"
-			if song, err := music.GetMusic(o.source, o.id, true); err == nil {
-				name = song.Name
-				if song.Artist != "" {
-					artist = song.Artist
-				}
+	list := make([]item, 0)
+	c.WithHouse(func(h *House) {
+		for _, order := range h.Playlist {
+			artist := order.song.Artist
+			if artist == "" {
+				artist = "unknown"
 			}
 			list = append(list, item{
-				Name:   name,
-				Artist: artist,
-				Source: o.source,
-				ID:     o.id,
-				Likes:  o.likes,
-				User:   o.user,
+				Name: order.song.Name, Artist: artist, Source: order.source, ID: order.id, Likes: order.likes, User: order.user,
 			})
 		}
 	})
-
-	if c.IsWebSocket() {
-		c.conn.Send(base.H{
-			"type": "playlist",
-			"data": list,
-		})
-	}
-	if c.IsHTTP() {
-		c.Send(base.H{"playlist": list})
-	}
+	c.Send(base.H{"playlist": list})
 }
 
 func recommendMusic(c *Context) {
-	c.house.Wait(WaitSearch)
-	var list []string
+	if !c.Wait(WaitSearch) {
+		return
+	}
+	ids := make([]string, 0)
 	c.WithHouse(func(h *House) {
-		for _, o := range h.Playlist {
-			if o.source != "wy" {
-				continue
+		for _, order := range h.Playlist {
+			if music.ParseSource(order.source) == music.NetEase {
+				ids = append(ids, order.id)
 			}
-			list = append(list, o.id)
 		}
 	})
-
-	recommand := c.house.recommander.Recommend(list)
-	var data []*music.Music
-	for _, id := range recommand {
-		song, err := music.GetMusic("wy", id, true)
-		if err != nil {
+	recommended := c.house.recommander.Recommend(ids)
+	items := make([]*music.Music, 0, len(recommended))
+	for _, id := range recommended {
+		if c.ctx.Err() != nil {
+			c.Fail(protocol.ErrorCodeUnavailable, "请求已取消或超时")
+			return
+		}
+		song, err := c.house.backend.Load("netease", id, true)
+		if err != nil || song == nil {
 			continue
 		}
-		data = append(data, &music.Music{
-			ID:       song.ID,
-			Name:     song.Name,
-			Artist:   song.Artist,
-			Album:    song.Album,
-			Duration: song.Duration,
-			Cover:    song.PictureURL,
-			Source:   music.NetEase,
+		items = append(items, &music.Music{
+			ID: id, Name: song.Name, Artist: song.Artist, Album: song.Album,
+			Duration: max(song.Duration, 0), Cover: song.PictureURL, Source: music.NetEase,
 		})
 	}
-
-	c.conn.Send(base.H{
-		"type":      "music/recommend",
-		"data":      data,
-		"totalSize": len(data),
-	})
+	c.Send(protocol.SearchData(items, int64(len(items))))
 }
 
-func proxyMusicURL(m *music.Song) *music.Song {
+func proxyMusicURL(song *music.Song) *music.Song {
 	const useProxy = false
-	if !useProxy || m == nil {
-		return m
+	if !useProxy || song == nil || music.ParseSource(song.Source) != music.NetEase {
+		return song
 	}
-	if music.ParseSource(m.Source) != music.NetEase {
-		return m
-	}
-
-	r := *m
-	r.URL = localhost() + "/music/file?source=netease&id=" + m.ID
-	return &r
+	copy := *song
+	copy.URL = localhost() + "/music/file?source=netease&id=" + song.ID
+	return &copy
 }
 
-// songToH 将 Song 转为 map，便于与 base.H 合并后按既有协议下发。
-func songToH(s *music.Song) base.H {
-	if s == nil {
+// The flat legacy song representation is used only by the HTTP API.
+func songToH(song *music.Song) base.H {
+	if song == nil {
 		return nil
 	}
-	b, _ := json.Marshal(s)
-	var h base.H
-	_ = json.Unmarshal(b, &h)
-	return h
+	raw, _ := json.Marshal(song)
+	var message base.H
+	_ = json.Unmarshal(raw, &message)
+	return message
 }

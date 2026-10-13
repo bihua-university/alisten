@@ -1,0 +1,37 @@
+HTTP 播放同步保留原有歌曲、时间、响度与用户字段。
+
+-- setup --
+POST /music/pick
+{
+  "source": "wy",
+  "id": "http-current",
+  "user": {
+    "name": "http-user"
+  }
+}
+
+-- request --
+POST /music/sync
+{}
+
+-- response --
+200
+{
+  "type": "music",
+  "url": "https://example.invalid/http-current",
+  "webUrl": "",
+  "pictureUrl": "",
+  "duration": 3600000,
+  "source": "netease",
+  "lyric": "[00:00]lyric",
+  "artist": "artist",
+  "name": "同名歌曲",
+  "album": "",
+  "id": "http-current",
+  "pushTime": 1,
+  "volumeCoef": 0.75,
+  "user": {
+    "name": "http-user",
+    "email": ""
+  }
+}

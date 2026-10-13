@@ -1,0 +1,27 @@
+Provider 失败时按旧行为返回空列表。
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.search",
+  "requestId": "provider-error",
+  "data": {
+    "source": "kuwo",
+    "keyword": "keyword",
+    "pageIndex": 1,
+    "pageSize": 10
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "music.search",
+  "requestId": "provider-error",
+  "data": {
+    "items": [],
+    "totalSize": 0
+  }
+}

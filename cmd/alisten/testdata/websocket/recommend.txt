@@ -1,0 +1,33 @@
+推荐查询返回成功解析的歌曲，跳过无法加载的歌曲。
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.recommend",
+  "requestId": "recommend",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "music.recommend",
+  "requestId": "recommend",
+  "data": {
+    "items": [
+      {
+        "album": "",
+        "artist": "artist",
+        "durationMs": 3600000,
+        "id": "recommended",
+        "name": "同名歌曲",
+        "pictureUrl": "",
+        "source": "netease",
+        "webUrl": "https://music.163.com/#/song?id=recommended"
+      }
+    ],
+    "totalSize": 1
+  }
+}

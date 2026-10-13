@@ -1,23 +1,39 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
 
 	"github.com/bihua-university/alisten/internal/auth"
+	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/syncx"
+	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
 )
 
 type Context struct {
-	conn  *Connection
-	hw    http.ResponseWriter
-	house *House
-	data  gjson.Result
+	ctx     context.Context
+	conn    *Connection
+	hw      http.ResponseWriter
+	house   *House
+	data    gjson.Result
+	message protocol.Incoming
+	replied bool
+}
+
+// Decode reads the protocol DTO after the websocket envelope has been validated.
+// HTTP callers share the DTOs while retaining their existing request wrapper.
+func (c *Context) Decode(value any) bool {
+	if err := json.Unmarshal([]byte(c.data.Raw), value); err != nil {
+		c.Fail(protocol.ErrorCodeInvalidArgument, "请求数据格式错误")
+		return false
+	}
+	return true
 }
 
 func (c *Context) Get(p string) gjson.Result {
@@ -57,26 +73,58 @@ func (c *Context) User() auth.User {
 }
 
 func (c *Context) Send(j any) {
+	if c.replied {
+		return
+	}
+	c.replied = true
 	if c.conn != nil {
-		c.conn.Send(j)
+		c.conn.Send(protocol.Response(c.message, j))
 	}
 	if c.hw != nil {
 		writeJSON(c.hw, http.StatusOK, j)
 	}
 }
 
-func (c *Context) Broadcast(j any) {
-	if c.conn != nil {
-		c.house.Broadcast(j)
+func (c *Context) Fail(code protocol.ErrorCode, message string) {
+	if c.replied {
+		return
 	}
-	if c.hw != nil {
-		writeJSON(c.hw, http.StatusOK, j)
+	c.replied = true
+	if c.IsWebSocket() {
+		c.conn.Send(protocol.Failure(c.message, protocol.Error{Code: code, Message: message}))
+		return
 	}
+	status := http.StatusBadRequest
+	switch code {
+	case protocol.ErrorCodeNotFound:
+		status = http.StatusNotFound
+	case protocol.ErrorCodeRateLimited:
+		status = http.StatusTooManyRequests
+	case protocol.ErrorCodeUnavailable:
+		status = http.StatusServiceUnavailable
+	case protocol.ErrorCodeInternalError:
+		status = http.StatusInternalServerError
+	}
+	writeJSON(c.hw, status, base.H{"error": message})
+}
+
+func (c *Context) Wait(kind uint8) bool {
+	if !c.house.Wait(c.ctx, kind) {
+		if c.ctx.Err() != nil {
+			c.Fail(protocol.ErrorCodeUnavailable, "请求已取消或超时")
+		} else {
+			c.Fail(protocol.ErrorCodeRateLimited, "操作过于频繁，请稍后再试")
+		}
+		return false
+	}
+	return true
 }
 
 type Connection struct {
-	ip   string
-	send syncx.UnboundedChan[[]byte]
+	ip        string
+	send      syncx.UnboundedChan[[]byte]
+	done      chan struct{}
+	closeOnce sync.Once
 
 	mu   sync.Mutex
 	user auth.User
@@ -87,9 +135,22 @@ type Connection struct {
 func (c *Connection) Start() {
 	go func() {
 		for x := range c.send.Out() {
-			_ = c.conn.WriteMessage(websocket.TextMessage, x)
+			if err := c.conn.WriteMessage(websocket.TextMessage, x); err != nil {
+				c.Close()
+				return
+			}
 		}
 	}()
+}
+
+func (c *Connection) Close() {
+	c.closeOnce.Do(func() {
+		close(c.done)
+		close(c.send.In())
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
+	})
 }
 
 func (c *Connection) GetUser() auth.User {
@@ -98,16 +159,19 @@ func (c *Connection) GetUser() auth.User {
 	return c.user
 }
 
-func encJson(j any) []byte {
-	b, _ := json.Marshal(j)
-	return b
-}
-
 func (c *Connection) Send(j any) {
-	c.SendRaw(encJson(j))
+	raw, err := json.Marshal(j)
+	if err != nil {
+		logx.Error("encode websocket message:", err)
+		return
+	}
+	c.SendRaw(raw)
 }
 
 func (c *Connection) SendRaw(j []byte) {
 	logx.Debug("[OUT]:", string(j))
-	c.send.In() <- j
+	select {
+	case <-c.done:
+	case c.send.In() <- j:
+	}
 }

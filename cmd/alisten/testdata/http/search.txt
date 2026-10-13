@@ -1,0 +1,27 @@
+HTTP 搜索保留 list/totalSize 及原音乐模型字段。
+
+-- request --
+POST /music/search
+{
+  "source": "qq",
+  "keyword": "keyword",
+  "pageIndex": 1,
+  "pageSize": 10
+}
+
+-- response --
+200
+{
+  "list": [
+    {
+      "id": "searched",
+      "name": "keyword",
+      "artist": "",
+      "album": "",
+      "duration": 1000,
+      "cover": "",
+      "source": 0
+    }
+  ],
+  "totalSize": 1
+}

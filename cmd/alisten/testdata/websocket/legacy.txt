@@ -1,0 +1,18 @@
+旧 action 信封通过 protocol.error 明确拒绝。
+
+-- request --
+{
+  "action": "/heartbeat",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "event",
+  "type": "protocol.error",
+  "data": {
+    "code": "UNSUPPORTED_VERSION",
+    "message": "仅支持 WebSocket 协议 version=1"
+  }
+}

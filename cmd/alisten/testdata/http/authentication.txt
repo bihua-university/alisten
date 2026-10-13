@@ -1,0 +1,25 @@
+HTTP 密码错误和房间不存在分别返回 401 和 404。
+
+-- request --
+POST /music/sync
+{
+  "password": "wrong"
+}
+
+-- response --
+401
+{
+  "error": "密码错误"
+}
+
+-- request --
+POST /music/sync
+{
+  "houseId": "missing"
+}
+
+-- response --
+404
+{
+  "error": "房间不存在"
+}

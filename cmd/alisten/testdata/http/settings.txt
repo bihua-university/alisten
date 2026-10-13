@@ -1,0 +1,13 @@
+HTTP 播放模式仍使用 mode 字段。
+
+-- request --
+POST /music/playmode
+{
+  "mode": "random"
+}
+
+-- response --
+200
+{
+  "mode": "random"
+}

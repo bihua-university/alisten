@@ -5,70 +5,51 @@ import (
 	"time"
 
 	"github.com/bihua-university/alisten/internal/auth"
-	"github.com/bihua-university/alisten/internal/base"
+	"github.com/bihua-university/alisten/protocol"
 )
 
 func chat(c *Context) {
-	// 转发所有消息
-	msg := base.H{
-		"type":     "chat",
-		"user":     c.conn.GetUser(),
-		"sendTime": c.data.Get("sendTime").Int(),
-		"content":  c.data.Get("content").String(),
+	var request protocol.ChatRequest
+	if !c.Decode(&request) {
+		return
 	}
-	c.house.Broadcast(msg)
+	c.Chat(request.Content)
+	c.Send(protocol.Empty{})
 }
 
-func (c *Context) Chat(msg string) {
-	h := base.H{
-		"type":     "chat",
-		"user":     c.conn.GetUser(),
-		"sendTime": time.Now().UnixMilli(),
-		"content":  msg,
+func (c *Context) Chat(content string) {
+	if chars := []rune(content); len(chars) > 500 {
+		content = string(chars[:500])
 	}
-	c.house.Broadcast(h)
-}
-
-func (c *Context) Info(msg string) {
-	h := base.H{
-		"type": "info/push",
-		"info": msg,
-	}
-	c.conn.Send(h)
+	c.house.Broadcast(protocol.Event(protocol.EventChatMessage, protocol.ChatData{
+		Content: content, User: protocol.UserData(c.User()), SentAtMS: time.Now().UnixMilli(),
+	}))
 }
 
 func setUser(c *Context) {
-	name := c.Get("name").String()
-	email := c.Get("email").String()
-	sendTime := c.Get("sendTime").Int()
-
-	delay := sendTime - time.Now().UnixMilli()
-
-	c.conn.mu.Lock()
-	// 更新用户信息
-	if email != "" {
-		c.conn.user.Email = auth.EmailToMD5(email)
-		c.conn.user.Name = name
-	} else {
-		c.conn.user.Name = fmt.Sprintf("%s(%s)", name, c.conn.ip)
-		c.conn.user.Email = ""
+	var request protocol.UserUpdateRequest
+	if !c.Decode(&request) {
+		return
 	}
+	name := request.Name
+	user := auth.User{Name: name}
+	if email := request.Email; email != "" {
+		user.Email = auth.EmailToMD5(email)
+	} else {
+		user.Name = fmt.Sprintf("%s(%s)", name, c.conn.ip)
+	}
+	c.conn.mu.Lock()
+	c.conn.user = user
 	c.conn.mu.Unlock()
+	c.house.PushMembers()
+	c.Send(protocol.UserUpdateResult{
+		User: protocol.UserData(user), ClientTimeMS: request.ClientTimeMS, ServerTimeMS: time.Now().UnixMilli(),
+	})
+}
 
-	c.conn.Send(base.H{
-		"type":  "delay",
-		"delay": delay,
-	})
-	// 推送更新后的用户列表
-	var users []auth.User
-	c.WithHouse(func(h *House) {
-		for _, conn := range h.Connection {
-			users = append(users, conn.user)
-		}
-	})
-
-	c.house.Broadcast(base.H{
-		"type": "house_user",
-		"data": users,
-	})
+func heartbeat(c *Context) {
+	var request protocol.HeartbeatRequest
+	if c.Decode(&request) {
+		c.Send(protocol.HeartbeatResult{ClientTimeMS: request.ClientTimeMS, ServerTimeMS: time.Now().UnixMilli()})
+	}
 }

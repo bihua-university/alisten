@@ -1,0 +1,253 @@
+同名、跨来源同 ID 的歌曲按 source/id 点赞、排序和删除。
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "user.update",
+  "requestId": "user",
+  "data": {
+    "name": "alice",
+    "email": " A@B.C ",
+    "clientTimeMs": 100
+  }
+}
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.pick",
+  "requestId": "pick-current",
+  "data": {
+    "source": "qq",
+    "id": "current"
+  }
+}
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.pick",
+  "requestId": "pick-qq",
+  "data": {
+    "source": "qq",
+    "id": "shared"
+  }
+}
+
+-- setup --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.pick",
+  "requestId": "pick-netease",
+  "data": {
+    "source": "netease",
+    "id": "shared"
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.pick",
+  "requestId": "duplicate",
+  "data": {
+    "source": "netease",
+    "id": "shared"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "music.pick",
+  "requestId": "duplicate",
+  "data": {},
+  "error": {
+    "code": "CONFLICT",
+    "message": "重复点歌"
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "queue.get",
+  "requestId": "queue",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "queue.get",
+  "requestId": "queue",
+  "data": {
+    "current": {
+      "likes": 0,
+      "song": {
+        "album": "",
+        "artist": "artist",
+        "durationMs": 3600000,
+        "id": "current",
+        "name": "同名歌曲",
+        "pictureUrl": "",
+        "source": "qq",
+        "webUrl": ""
+      },
+      "user": {
+        "name": "alice",
+        "emailHash": "5d60d4e28066df254d5452f92c910092"
+      }
+    },
+    "items": [
+      {
+        "likes": 0,
+        "song": {
+          "album": "",
+          "artist": "artist",
+          "durationMs": 3600000,
+          "id": "shared",
+          "name": "同名歌曲",
+          "pictureUrl": "",
+          "source": "qq",
+          "webUrl": ""
+        },
+        "user": {
+          "name": "alice",
+          "emailHash": "5d60d4e28066df254d5452f92c910092"
+        }
+      },
+      {
+        "likes": 0,
+        "song": {
+          "album": "",
+          "artist": "artist",
+          "durationMs": 3600000,
+          "id": "shared",
+          "name": "同名歌曲",
+          "pictureUrl": "",
+          "source": "netease",
+          "webUrl": ""
+        },
+        "user": {
+          "name": "alice",
+          "emailHash": "5d60d4e28066df254d5452f92c910092"
+        }
+      }
+    ],
+    "onlineCount": 1
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "queue.like",
+  "requestId": "like",
+  "data": {
+    "source": "netease",
+    "id": "shared"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "queue.like",
+  "requestId": "like",
+  "data": {
+    "id": "shared",
+    "likes": 1,
+    "source": "netease"
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "queue.remove",
+  "requestId": "remove",
+  "data": {
+    "source": "qq",
+    "id": "shared"
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "queue.remove",
+  "requestId": "remove",
+  "data": {
+    "id": "shared",
+    "source": "qq"
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "queue.get",
+  "requestId": "queue-after-remove",
+  "data": {}
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "queue.get",
+  "requestId": "queue-after-remove",
+  "data": {
+    "current": {
+      "likes": 0,
+      "song": {
+        "album": "",
+        "artist": "artist",
+        "durationMs": 3600000,
+        "id": "current",
+        "name": "同名歌曲",
+        "pictureUrl": "",
+        "source": "qq",
+        "webUrl": ""
+      },
+      "user": {
+        "name": "alice",
+        "emailHash": "5d60d4e28066df254d5452f92c910092"
+      }
+    },
+    "items": [
+      {
+        "likes": 1,
+        "song": {
+          "album": "",
+          "artist": "artist",
+          "durationMs": 3600000,
+          "id": "shared",
+          "name": "同名歌曲",
+          "pictureUrl": "",
+          "source": "netease",
+          "webUrl": ""
+        },
+        "user": {
+          "name": "alice",
+          "emailHash": "5d60d4e28066df254d5452f92c910092"
+        }
+      }
+    ],
+    "onlineCount": 1
+  }
+}

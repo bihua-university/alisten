@@ -1,0 +1,113 @@
+歌曲搜索、歌单搜索和歌单歌曲查询返回协议 DTO。
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.search",
+  "requestId": "search",
+  "data": {
+    "source": "qq",
+    "keyword": "keyword",
+    "pageIndex": 1,
+    "pageSize": 10
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "music.search",
+  "requestId": "search",
+  "data": {
+    "items": [
+      {
+        "album": "",
+        "artist": "",
+        "durationMs": 1000,
+        "id": "searched",
+        "name": "keyword",
+        "pictureUrl": "",
+        "source": "qq",
+        "webUrl": "https://y.qq.com/n/ryqq/songDetail/searched"
+      }
+    ],
+    "totalSize": 1
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "playlist.search",
+  "requestId": "playlists",
+  "data": {
+    "source": "qq",
+    "keyword": "keyword",
+    "pageIndex": 1,
+    "pageSize": 10
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "playlist.search",
+  "requestId": "playlists",
+  "data": {
+    "items": [
+      {
+        "creator": "",
+        "creatorId": "creator",
+        "description": "description",
+        "id": "list",
+        "name": "keyword",
+        "pictureUrl": "",
+        "playCount": 0,
+        "songCount": 0,
+        "source": "qq"
+      }
+    ],
+    "totalSize": 1
+  }
+}
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "music.search",
+  "requestId": "playlist-songs",
+  "data": {
+    "source": "qq",
+    "keyword": "*list",
+    "pageIndex": 1,
+    "pageSize": 10
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "music.search",
+  "requestId": "playlist-songs",
+  "data": {
+    "items": [
+      {
+        "album": "",
+        "artist": "",
+        "durationMs": 0,
+        "id": "list-song",
+        "name": "",
+        "pictureUrl": "",
+        "source": "qq",
+        "webUrl": "https://y.qq.com/n/ryqq/songDetail/list-song"
+      }
+    ],
+    "totalSize": 1
+  }
+}

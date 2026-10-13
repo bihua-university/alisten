@@ -1,0 +1,24 @@
+心跳回显客户端时间，并返回服务器时间。
+
+-- request --
+{
+  "version": 1,
+  "kind": "request",
+  "type": "heartbeat",
+  "requestId": "heartbeat",
+  "data": {
+    "clientTimeMs": 123
+  }
+}
+
+-- response --
+{
+  "version": 1,
+  "kind": "response",
+  "type": "heartbeat",
+  "requestId": "heartbeat",
+  "data": {
+    "clientTimeMs": 123,
+    "serverTimeMs": 1
+  }
+}
