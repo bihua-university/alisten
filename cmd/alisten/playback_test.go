@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/bihua-university/alisten/internal/auth"
-	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/protocol"
 	"github.com/tidwall/gjson"
@@ -21,18 +21,18 @@ import (
 func playbackHouse(t *testing.T, ids ...string) *House {
 	t.Helper()
 	h := newHouse("playback", "", "", true)
-	h.backend.Load = func(source, id string, cached bool) (*music.Song, error) {
-		switch id {
+	h.backend.Load = func(ctx context.Context, req *pb.SongRequest) (*pb.Song, error) {
+		switch req.Id {
 		case "error":
 			return nil, errors.New("expired URL")
 		case "nil":
 			return nil, nil
 		case "empty-url":
-			return &music.Song{}, nil
+			return &pb.Song{}, nil
 		}
-		return &music.Song{ID: id, Source: source, URL: "https://example.invalid/" + id, Duration: 60000}, nil
+		return &pb.Song{Id: req.Id, Source: req.Source, Url: "https://example.invalid/" + req.Id, Duration: 60000}, nil
 	}
-	h.backend.Loudness = func(string, string) float64 { return 0.75 }
+	h.backend.Loudness = func(context.Context, string, string) (float64, error) { return 0.75, nil }
 	h.Current = Order{id: "current", source: "qq"}
 	current := protocol.PlayableSong{ID: "current", Source: protocol.Source("qq")}
 	h.PushTime = time.Now().UnixMilli()
@@ -96,9 +96,9 @@ func TestPlaybackSkipsUnavailableSongs(t *testing.T) {
 			h := playbackHouse(t, "error", "nil", "empty-url", "next", "last")
 			var loaded []string
 			load := h.backend.Load
-			h.backend.Load = func(source, id string, cached bool) (*music.Song, error) {
-				loaded = append(loaded, id)
-				return load(source, id, cached)
+			h.backend.Load = func(ctx context.Context, req *pb.SongRequest) (*pb.Song, error) {
+				loaded = append(loaded, req.Id)
+				return load(ctx, req)
 			}
 			if force {
 				if r := playbackVote(h, "alice"); r.Code != http.StatusOK {
@@ -138,12 +138,12 @@ func TestPlaybackVotesDuringLoad(t *testing.T) {
 	h := playbackHouse(t, "next", "last")
 	entered, release := make(chan struct{}), make(chan struct{})
 	load := h.backend.Load
-	h.backend.Load = func(source, id string, cached bool) (*music.Song, error) {
-		if id == "next" {
+	h.backend.Load = func(ctx context.Context, req *pb.SongRequest) (*pb.Song, error) {
+		if req.Id == "next" {
 			close(entered)
 			<-release
 		}
-		return load(source, id, cached)
+		return load(ctx, req)
 	}
 	done := make(chan bool, 1)
 	go func() { done <- h.Skip(true) }()

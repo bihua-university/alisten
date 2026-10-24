@@ -4,50 +4,16 @@
 
 ## Config
 
-put config.json in the root directory of your project.
+主服务 `alisten` 通过 [RomiChan/protobuf 的 RPC 框架](https://github.com/RomiChan/protobuf/tree/main/rpc) 调用独立的 `alisten-musicd`。平台客户端、歌曲缓存与响度分析由 musicd 进程持有；房间、队列和听歌历史由主服务持有。
 
-```json
-{
-    "addr": ":80",
-    "token": "your-auth-token-here",
-    "music": {
-        "netease": "...",
-        "cookie": "...",
-        "qq": "..."
-    },
-    "debug": true,
-    "pgsql": "...",
-    "persist": [
-        {
-            "id": "room1",
-            "name": "音乐房间1",
-            "desc": "这是一个持久化的音乐房间",
-            "password": "123456"
-        },
-        {
-            "id": "room2", 
-            "name": "音乐房间2",
-            "desc": "另一个持久化房间",
-            "password": ""
-        }
-    ]
-}
-```
+复制 `config.json.example` 与 `musicd-config.json.example` 为对应配置文件。
 
-### 配置说明
+- 主服务：`music.rpc.address` 指定 RPC 地址，`music.rpc.http_url` 指定 worker HTTP 转发地址，`music.rpc.timeout_seconds` 默认 210 秒。
+- musicd：`music.cookie` 保存网易云 Cookie，`token` 验证 Python worker 请求。
+- `persist` 定义主服务持久化房间，`token` 验证主服务 Cookie 管理接口。
+- 本机使用 `127.0.0.1:9090` 与 `http://127.0.0.1:8081`；Compose 示例使用 `alisten-musicd` 服务名。
 
-- `addr`: 服务器监听地址
-- `token`: 认证令牌
-- `music.netease`: 网易云音乐 API 地址
-- `music.cookie`: 音乐平台 Cookie
-- `music.qq`: QQ音乐 API 地址
-- `debug`: 调试模式开关
-- `pgsql`: PostgreSQL 数据库连接字符串
-- `persist`: 持久化房间配置数组
-  - `id`: 房间唯一标识符
-  - `name`: 房间显示名称
-  - `desc`: 房间描述
-  - `password`: 房间密码（可选，为空表示无密码）
+共享 RPC IDL 和 golite 生成文件位于 `internal/proto/musicd`，方法名为 `musicd.v1.*`。生成与详细配置说明见 [部署指南](docs/deploy.md)。
 
 ## Features
 
@@ -111,7 +77,12 @@ WebSocket `/server` 使用统一的 [protocol v1](docs/protocol.md)，请求、�
 ## Build and run
 
 ```bash
-go build && ./alisten
+go build -o alisten ./cmd/alisten
+go build -o alisten-musicd ./cmd/alisten-musicd
+
+# 两个终端分别启动（本机配置需使用 127.0.0.1 地址）
+./alisten-musicd
+./alisten
 ```
 
 ## 部署指南
@@ -134,7 +105,8 @@ cd alisten
 
 # 准备配置文件
 cp config.json.example config.json
+cp musicd-config.json.example musicd-config.json
 
 # 启动服务
-docker compose up -d
+docker compose up -d --build alisten alisten-musicd
 ```

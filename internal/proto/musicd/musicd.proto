@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package musicd.v1;
+
+option go_package = "github.com/bihua-university/alisten/internal/proto/musicd;musicd";
+
+message Empty {}
+
+message SongRequest {
+  string source = 1;
+  string id = 2;
+  bool use_cache = 3;
+}
+
+message SearchRequest {
+  string id = 1;
+  int32 source = 2; // QQ=0, NetEase=1, KuWo=2, URLCommon=3, Unknown=-1
+  string keyword = 3;
+  int64 page = 4;
+  int64 page_size = 5;
+}
+
+message Music {
+  string id = 1;
+  string name = 2;
+  string artist = 3;
+  string album = 4;
+  int64 duration = 5;
+  string cover = 6;
+  int32 source = 7;
+}
+
+message Playlist {
+  string id = 1;
+  string name = 2;
+  string picture_url = 3;
+  string desc = 4;
+  string creator = 5;
+  string creator_uid = 6;
+  int64 play_count = 7;
+  int64 song_count = 8;
+}
+
+message Song {
+  string type = 1;
+  string url = 2;
+  string web_url = 3;
+  string picture_url = 4;
+  int64 duration = 5;
+  string source = 6;
+  string lyric = 7;
+  string artist = 8;
+  string name = 9;
+  string album = 10;
+  string id = 11;
+}
+
+message MusicResult {
+  int64 total = 1;
+  repeated Music data = 2;
+}
+
+message PlaylistResult {
+  int64 total = 1;
+  repeated Playlist data = 2;
+}
+
+message CoefficientReply {
+  double coefficient = 1;
+}
+
+message IDsReply {
+  repeated string ids = 1;
+}
+
+message CookieRequest {
+  string cookie = 1;
+}
+
+message BoolReply {
+  bool value = 1;
+}

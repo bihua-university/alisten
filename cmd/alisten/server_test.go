@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,7 +14,7 @@ import (
 	"time"
 
 	"github.com/bihua-university/alisten/internal/music"
-	"github.com/bihua-university/alisten/internal/task"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 	"github.com/bihua-university/alisten/protocol"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -24,7 +25,7 @@ type testRecommender struct{}
 
 func (testRecommender) AddHistory(string) {}
 func (testRecommender) Mark(string)       {}
-func (testRecommender) Recommend([]string) []string {
+func (testRecommender) Recommend(context.Context, []string) []string {
 	return []string{"recommended", "bad"}
 }
 
@@ -34,33 +35,32 @@ func testHouse(t *testing.T, configure func(*House)) (*House, string) {
 	h.recommander = testRecommender{}
 	h.orderLimiter, h.likeLimiter = nil, nil
 	h.backend = musicBackend{
-		Load: func(source, id string, cached bool) (*music.Song, error) {
-			if source == "kuwo" || id == "bad" || (id == "expires" && !cached) {
+		Load: func(ctx context.Context, req *pb.SongRequest) (*pb.Song, error) {
+			if req.Source == "kuwo" || req.Id == "bad" || (req.Id == "expires" && !req.UseCache) {
 				return nil, errors.New("provider unavailable")
 			}
-			return &music.Song{
-				Type: "music", ID: id, Source: source, Name: "同名歌曲", Artist: "artist",
-				URL: "https://example.invalid/" + id, Duration: 3_600_000, Lyric: "[00:00]lyric",
+			return &pb.Song{
+				Type: "music", Id: req.Id, Source: req.Source, Name: "同名歌曲", Artist: "artist",
+				Url: "https://example.invalid/" + req.Id, Duration: 3_600_000, Lyric: "[00:00]lyric",
 			}, nil
 		},
-		Search: func(option music.SearchOption) (music.Result[music.Music], error) {
-			if option.Source == music.KuWo {
-				return music.Result[music.Music]{}, errors.New("provider unavailable")
+		Search: func(ctx context.Context, req *pb.SearchRequest) (pb.MusicResult, error) {
+			if req.Source == int32(music.KuWo) {
+				return pb.MusicResult{}, errors.New("provider unavailable")
 			}
-			return music.Result[music.Music]{Total: 1, Data: []*music.Music{{
-				ID: "searched", Name: option.Keyword, Source: option.Source, Duration: 1000,
+			return pb.MusicResult{Total: 1, Data: []*pb.Music{{
+				Id: "searched", Name: req.Keyword, Source: req.Source, Duration: 1000,
 			}}}, nil
 		},
-		Playlists: func(option music.SearchOption) (music.Result[music.Playlist], error) {
-			return music.Result[music.Playlist]{Total: 1, Data: []*music.Playlist{{
-				ID: "list", Name: option.Keyword, Desc: "description", CreatorUid: "creator",
+		Playlists: func(ctx context.Context, req *pb.SearchRequest) (pb.PlaylistResult, error) {
+			return pb.PlaylistResult{Total: 1, Data: []*pb.Playlist{{
+				Id: "list", Name: req.Keyword, Desc: "description", CreatorUid: "creator",
 			}}}, nil
 		},
-		SongList: func(option music.SearchOption) (music.Result[music.Music], error) {
-			return music.Result[music.Music]{Total: 1, Data: []*music.Music{{ID: option.ID + "-song", Source: option.Source}}}, nil
+		SongList: func(ctx context.Context, req *pb.SearchRequest) (pb.MusicResult, error) {
+			return pb.MusicResult{Total: 1, Data: []*pb.Music{{Id: req.Id + "-song", Source: req.Source}}}, nil
 		},
-		Loudness: func(string, string) float64 { return 0.75 },
-		Analyze:  func(string, string) {},
+		Loudness: func(context.Context, string, string) (float64, error) { return 0.75, nil },
 	}
 	if configure != nil {
 		configure(h)
@@ -83,7 +83,6 @@ func testHouse(t *testing.T, configure func(*House)) (*House, string) {
 
 func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	task.Scheduler = task.NewServer("test")
 	server := httptest.NewServer(newHandler())
 	t.Cleanup(server.Close)
 	return server
@@ -326,10 +325,10 @@ func TestPlaybackReservationAndClose(t *testing.T) {
 	entered, release := make(chan struct{}, 1), make(chan struct{})
 	h, _ := testHouse(t, func(h *House) {
 		load := h.backend.Load
-		h.backend.Load = func(source, id string, cached bool) (*music.Song, error) {
+		h.backend.Load = func(ctx context.Context, req *pb.SongRequest) (*pb.Song, error) {
 			entered <- struct{}{}
 			<-release
-			return load(source, id, cached)
+			return load(ctx, req)
 		}
 		h.Current = Order{id: "current", source: "qq"}
 		h.End = time.Now().Add(time.Hour)

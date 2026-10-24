@@ -16,16 +16,26 @@ var Config struct {
 	Pgsql      string
 	Debug      bool
 	Persist    []PersistHouse
+	MusicRPC   MusicRPCConfig
 }
+
+type MusicRPCConfig struct {
+	Address        string `json:"address"`
+	HTTPURL        string `json:"http_url"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+var configPath = "config.json"
 
 // configFile 对应 config.json 的原始结构，music 字段平铺到 Config。
 type configFile struct {
 	Addr  string `json:"addr"`
 	Token string `json:"token"`
 	Music struct {
-		Cookie  string `json:"cookie"`
-		Netease string `json:"netease"`
-		QQ      string `json:"qq"`
+		Cookie  string         `json:"cookie"`
+		Netease string         `json:"netease"`
+		QQ      string         `json:"qq"`
+		RPC     MusicRPCConfig `json:"rpc"`
 	} `json:"music"`
 	Pgsql   string         `json:"pgsql"`
 	Debug   bool           `json:"debug"`
@@ -40,12 +50,21 @@ type PersistHouse struct {
 }
 
 func InitConfig() {
-	file, _ := os.ReadFile("config.json")
+	_ = LoadConfig("config.json")
+}
+
+// LoadConfig also selects the file used by runtime Cookie persistence.
+func LoadConfig(path string) error {
+	file, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
 
 	var c configFile
 	if err := json.Unmarshal(file, &c); err != nil {
-		return // 配置无效时保持零值，与历史行为一致
+		return err
 	}
+	configPath = path
 
 	Config.Addr = c.Addr
 	Config.Token = c.Token
@@ -55,13 +74,15 @@ func InitConfig() {
 	Config.Pgsql = c.Pgsql
 	Config.Debug = c.Debug
 	Config.Persist = c.Persist
+	Config.MusicRPC = c.Music.RPC
+	return nil
 }
 
-// SetCookie 更新内存中的音乐 Cookie 并持久化到 config.json。
+// SetCookie 更新内存中的音乐 Cookie 并持久化到加载的配置文件。
 func SetCookie(cookie string) error {
 	Config.Cookie = cookie
 
-	data, err := os.ReadFile("config.json")
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
 	}
@@ -80,5 +101,5 @@ func SetCookie(cookie string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("config.json", out, 0o600)
+	return os.WriteFile(configPath, out, 0o600)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 	"github.com/bihua-university/alisten/protocol"
 )
 
@@ -20,7 +21,7 @@ type Order struct {
 	id     string
 	user   auth.User
 	likes  int
-	song   music.Song
+	song   pb.Song
 }
 
 func doPickMusic(ctx context.Context, h *House, request protocol.PickRequest, user auth.User) (protocol.PickResult, *protocol.Error) {
@@ -30,18 +31,18 @@ func doPickMusic(ctx context.Context, h *House, request protocol.PickRequest, us
 	source := music.ParseSource(string(request.Source))
 	id, name := strings.TrimSpace(request.ID), strings.TrimSpace(request.Name)
 	if id == "" {
-		result, err := h.backend.Search(music.SearchOption{Source: source, Keyword: name, Page: 1, PageSize: 10})
-		if err != nil || len(result.Data) == 0 || result.Data[0] == nil || result.Data[0].ID == "" {
+		result, err := h.backend.Search(ctx, &pb.SearchRequest{Source: int32(source), Keyword: name, Page: 1, PageSize: 10})
+		if err != nil || len(result.Data) == 0 || result.Data[0] == nil || result.Data[0].Id == "" {
 			return fail(protocol.ErrorCodeProviderError, "点歌失败，无法搜索到音乐")
 		}
-		id = result.Data[0].ID
+		id = result.Data[0].Id
 	}
-	song, err := h.backend.Load(source.String(), id, true)
-	if err != nil || song == nil || song.URL == "" {
+	song, err := h.backend.Load(ctx, &pb.SongRequest{Source: source.String(), Id: id, UseCache: true})
+	if err != nil || song == nil || song.Url == "" {
 		return fail(protocol.ErrorCodeProviderError, "点歌失败，无法获取音乐信息")
 	}
 	order := Order{source: source.String(), id: id, user: user, song: *song}
-	order.song.ID, order.song.Source = id, order.source
+	order.song.Id, order.song.Source = id, order.source
 	order.song.Duration = max(order.song.Duration, 0)
 
 	var enqueueErr *protocol.Error
@@ -67,7 +68,7 @@ func doPickMusic(ctx context.Context, h *House, request protocol.PickRequest, us
 	if enqueueErr != nil {
 		return protocol.PickResult{}, enqueueErr
 	}
-	h.backend.Analyze(order.source, order.id)
+	h.prewarmLoudness(ctx, order.source, order.id)
 	h.PushPlaylist()
 	h.Update()
 	artist := song.Artist
@@ -82,16 +83,16 @@ func searchMusic(c *Context) {
 	if !c.Decode(&request) || !c.Wait(WaitSearch) {
 		return
 	}
-	option := music.SearchOption{
-		Source: music.ParseSource(string(request.Source)), Keyword: request.Keyword,
+	option := &pb.SearchRequest{
+		Source: int32(music.ParseSource(string(request.Source))), Keyword: request.Keyword,
 		Page: request.PageIndex, PageSize: request.PageSize,
 	}
-	var result music.Result[music.Music]
+	var result pb.MusicResult
 	if strings.HasPrefix(request.Keyword, "*") {
-		option.ID = strings.TrimPrefix(request.Keyword, "*")
-		result, _ = c.house.backend.SongList(option)
+		option.Id = strings.TrimPrefix(request.Keyword, "*")
+		result, _ = c.house.backend.SongList(c.ctx, option)
 	} else {
-		result, _ = c.house.backend.Search(option)
+		result, _ = c.house.backend.Search(c.ctx, option)
 	}
 	if c.IsHTTP() {
 		c.Send(base.H{"list": result.Data, "totalSize": result.Total})
@@ -254,8 +255,8 @@ func searchList(c *Context) {
 	if !c.Decode(&request) || !c.Wait(WaitSearch) {
 		return
 	}
-	result, _ := c.house.backend.Playlists(music.SearchOption{
-		Source: music.ParseSource(string(request.Source)), Keyword: request.Keyword,
+	result, _ := c.house.backend.Playlists(c.ctx, &pb.SearchRequest{
+		Source: int32(music.ParseSource(string(request.Source))), Keyword: request.Keyword,
 		Page: request.PageIndex, PageSize: request.PageSize,
 	})
 	if c.IsHTTP() {
@@ -353,37 +354,27 @@ func recommendMusic(c *Context) {
 			}
 		}
 	})
-	recommended := c.house.recommander.Recommend(ids)
-	items := make([]*music.Music, 0, len(recommended))
+	recommended := c.house.recommander.Recommend(c.ctx, ids)
+	items := make([]*pb.Music, 0, len(recommended))
 	for _, id := range recommended {
 		if c.ctx.Err() != nil {
 			c.Fail(protocol.ErrorCodeUnavailable, "请求已取消或超时")
 			return
 		}
-		song, err := c.house.backend.Load("netease", id, true)
+		song, err := c.house.backend.Load(c.ctx, &pb.SongRequest{Source: "netease", Id: id, UseCache: true})
 		if err != nil || song == nil {
 			continue
 		}
-		items = append(items, &music.Music{
-			ID: id, Name: song.Name, Artist: song.Artist, Album: song.Album,
-			Duration: max(song.Duration, 0), Cover: song.PictureURL, Source: music.NetEase,
+		items = append(items, &pb.Music{
+			Id: id, Name: song.Name, Artist: song.Artist, Album: song.Album,
+			Duration: max(song.Duration, 0), Cover: song.PictureUrl, Source: int32(music.NetEase),
 		})
 	}
 	c.Send(protocol.SearchData(items, int64(len(items))))
 }
 
-func proxyMusicURL(song *music.Song) *music.Song {
-	const useProxy = false
-	if !useProxy || song == nil || music.ParseSource(song.Source) != music.NetEase {
-		return song
-	}
-	copy := *song
-	copy.URL = localhost() + "/music/file?source=netease&id=" + song.ID
-	return &copy
-}
-
 // The flat legacy song representation is used only by the HTTP API.
-func songToH(song *music.Song) base.H {
+func songToH(song *pb.Song) base.H {
 	if song == nil {
 		return nil
 	}

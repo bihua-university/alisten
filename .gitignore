@@ -1,5 +1,8 @@
 config.json
 musiclet-config.json
+musicd-config.json
+/alisten-musicd
+/alisten-musicd.exe
 /alisten
 /alisten.exe
 dist

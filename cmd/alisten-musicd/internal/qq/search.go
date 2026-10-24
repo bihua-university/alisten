@@ -8,11 +8,12 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/music/internal/types"
+	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 )
 
 // Search 搜索歌曲，返回全量结果（分页由上层处理）
-func (c *Client) Search(keyword string) (*types.Result[types.Music], error) {
+func (c *Client) Search(keyword string) (*pb.MusicResult, error) {
 	params := url.Values{}
 	params.Set("w", keyword)
 	params.Set("format", "json")
@@ -28,24 +29,24 @@ func (c *Client) Search(keyword string) (*types.Result[types.Music], error) {
 		return nil, err
 	}
 
-	var data []*types.Music
+	var data []*pb.Music
 	gjson.ParseBytes(body).Get("data.song.list").ForEach(func(_, item gjson.Result) bool {
-		data = append(data, &types.Music{
-			ID:       item.Get("songmid").String(),
+		data = append(data, &pb.Music{
+			Id:       item.Get("songmid").String(),
 			Name:     item.Get("songname").String(),
 			Artist:   joinSingers(item.Get("singer")),
 			Album:    item.Get("albumname").String(),
 			Duration: item.Get("interval").Int() * 1000,
 			Cover:    coverURL(item.Get("albummid").String()),
-			Source:   types.QQ,
+			Source:   int32(music.QQ),
 		})
 		return true
 	})
-	return &types.Result[types.Music]{Total: int64(len(data)), Data: data}, nil
+	return &pb.MusicResult{Total: int64(len(data)), Data: data}, nil
 }
 
 // SearchPlaylist 搜索歌单，返回全量结果（分页由上层处理）
-func (c *Client) SearchPlaylist(keyword string) (*types.Result[types.Playlist], error) {
+func (c *Client) SearchPlaylist(keyword string) (*pb.PlaylistResult, error) {
 	params := url.Values{}
 	params.Set("query", keyword)
 	params.Set("page_no", "0")
@@ -63,16 +64,16 @@ func (c *Client) SearchPlaylist(keyword string) (*types.Result[types.Playlist], 
 		return nil, err
 	}
 
-	var data []*types.Playlist
+	var data []*pb.Playlist
 	gjson.ParseBytes(unwrapJSONP(body)).Get("data.list").ForEach(func(_, item gjson.Result) bool {
 		cover := item.Get("imgurl").String()
 		if strings.HasPrefix(cover, "http://") {
 			cover = strings.Replace(cover, "http://", "https://", 1)
 		}
-		data = append(data, &types.Playlist{
-			ID:         item.Get("dissid").String(),
+		data = append(data, &pb.Playlist{
+			Id:         item.Get("dissid").String(),
 			Name:       item.Get("dissname").String(),
-			PictureURL: cover,
+			PictureUrl: cover,
 			Desc:       item.Get("introduction").String(),
 			Creator:    item.Get("creator.name").String(),
 			CreatorUid: item.Get("creator.creator_uin").String(),
@@ -81,11 +82,11 @@ func (c *Client) SearchPlaylist(keyword string) (*types.Result[types.Playlist], 
 		})
 		return true
 	})
-	return &types.Result[types.Playlist]{Total: int64(len(data)), Data: data}, nil
+	return &pb.PlaylistResult{Total: int64(len(data)), Data: data}, nil
 }
 
 // GetSongDetail 获取歌曲详情
-func (c *Client) GetSongDetail(songMID string) (*types.Music, error) {
+func (c *Client) GetSongDetail(songMID string) (*pb.Music, error) {
 	apiURL := "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg?songmid=" + songMID + "&format=json"
 	body, err := c.getCached(apiURL, http.Header{
 		"User-Agent": {userAgent},
@@ -99,13 +100,13 @@ func (c *Client) GetSongDetail(songMID string) (*types.Music, error) {
 	if !song.Exists() {
 		return nil, errors.New("song not found")
 	}
-	return &types.Music{
-		ID:       songMID,
+	return &pb.Music{
+		Id:       songMID,
 		Name:     song.Get("name").String(),
 		Artist:   joinSingers(song.Get("singer")),
 		Album:    song.Get("album.name").String(),
 		Duration: song.Get("interval").Int() * 1000,
 		Cover:    coverURL(song.Get("album.mid").String()),
-		Source:   types.QQ,
+		Source:   int32(music.QQ),
 	}, nil
 }

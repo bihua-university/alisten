@@ -1,49 +1,43 @@
-package music
+// Package musicbackend 是音乐服务的统一门面，对外提供搜索、歌单与播放信息查询。
+// 各平台差异由内部 Provider 抽象屏蔽；RPC 层直接收发 pb 消息，不再转换为领域类型。
+package musicbackend
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/tidwall/gjson"
 
+	"github.com/bihua-university/alisten/cmd/alisten-musicd/internal/kuwo"
+	"github.com/bihua-university/alisten/cmd/alisten-musicd/internal/netease"
+	"github.com/bihua-university/alisten/cmd/alisten-musicd/internal/qq"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
-	"github.com/bihua-university/alisten/internal/music/internal/kuwo"
-	"github.com/bihua-university/alisten/internal/music/internal/netease"
-	"github.com/bihua-university/alisten/internal/music/internal/qq"
-	"github.com/bihua-university/alisten/internal/music/internal/types"
+	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 	"github.com/bihua-university/alisten/internal/task"
 )
 
-// Provider 统一抽象一个音乐平台的核心能力。
+// Provider 统一抽象一个音乐平台的核心能力，直接收发 RPC 消息。
 type Provider interface {
 	// Source 返回该 provider 对应的平台来源
-	Source() types.Source
+	Source() music.Source
 	// Search 搜索歌曲
-	Search(o SearchOption) (*Result[Music], error)
+	Search(*pb.SearchRequest) (*pb.MusicResult, error)
 	// GetSong 获取一首歌的完整播放信息
-	GetSong(id string) (*Song, error)
+	GetSong(ctx context.Context, id string) (*pb.Song, error)
 }
 
 // PlaylistSearcher 是可选能力：歌单搜索。
 type PlaylistSearcher interface {
-	SearchPlaylist(o SearchOption) (*Result[Playlist], error)
+	SearchPlaylist(*pb.SearchRequest) (*pb.PlaylistResult, error)
 }
 
 // SongLister 是可选能力：获取歌单全部歌曲。
 type SongLister interface {
-	SongList(playlistID string) (*Result[Music], error)
-}
-
-// Downloader 提供歌曲下载地址，供音乐文件代理（mpipe）使用。
-type Downloader interface {
-	GetDownloadURL(songID string) (string, error)
-}
-
-// NewNeteaseDownloader 创建一个网易云下载器。
-func NewNeteaseDownloader(cookie string) Downloader {
-	return netease.New(cookie)
+	SongList(playlistID string) (*pb.MusicResult, error)
 }
 
 // 全局 Provider，由 Init 初始化一次（urlCommonP 零值即可用，无需初始化）。
@@ -64,29 +58,40 @@ func Init() {
 // SetNeteaseCookie 更新网易云客户端的 Cookie，运行时生效。
 func SetNeteaseCookie(cookie string) {
 	neteaseAPI.SetCookie(cookie)
+	cache.Purge()
 }
 
 // providerFor 返回指定来源的 Provider。
-func providerFor(s types.Source) (Provider, error) {
+func providerFor(s music.Source) (Provider, error) {
 	switch s {
-	case types.NetEase:
+	case music.NetEase:
 		return neteaseP, nil
-	case types.QQ:
+	case music.QQ:
 		return qqP, nil
-	case types.URLCommon:
+	case music.URLCommon:
 		return urlCommonP, nil
 	default:
 		return nil, fmt.Errorf("unsupported music source: %q", s)
 	}
 }
 
+// normalize 补全搜索请求的分页参数。
+func normalize(p *pb.SearchRequest) {
+	if p.Page <= 0 {
+		p.Page = 1
+	}
+	if p.PageSize <= 0 {
+		p.PageSize = 20
+	}
+}
+
 // paginate 对全量列表做内存分页。
-func paginate[T any](data []*T, o SearchOption) []*T {
-	start := (o.Page - 1) * o.PageSize
+func paginate[T any](data []*T, p *pb.SearchRequest) []*T {
+	start := (p.Page - 1) * p.PageSize
 	if start >= int64(len(data)) {
 		return nil
 	}
-	end := min(start+o.PageSize, int64(len(data)))
+	end := min(start+p.PageSize, int64(len(data)))
 	return data[start:end]
 }
 
@@ -95,35 +100,35 @@ type neteaseProvider struct {
 	client *netease.Client
 }
 
-func (p *neteaseProvider) Source() types.Source { return types.NetEase }
+func (p *neteaseProvider) Source() music.Source { return music.NetEase }
 
-func (p *neteaseProvider) Search(o SearchOption) (*Result[Music], error) {
-	r, err := p.client.Search(o.Keyword)
+func (p *neteaseProvider) Search(req *pb.SearchRequest) (*pb.MusicResult, error) {
+	r, err := p.client.Search(req.Keyword)
 	if err != nil {
 		return nil, err
 	}
-	r.Data = paginate(r.Data, o)
+	r.Data = paginate(r.Data, req)
 	return r, nil
 }
 
-func (p *neteaseProvider) SearchPlaylist(o SearchOption) (*Result[Playlist], error) {
-	r, err := p.client.SearchPlaylist(o.Keyword)
+func (p *neteaseProvider) SearchPlaylist(req *pb.SearchRequest) (*pb.PlaylistResult, error) {
+	r, err := p.client.SearchPlaylist(req.Keyword)
 	if err != nil {
 		return nil, err
 	}
-	r.Data = paginate(r.Data, o)
+	r.Data = paginate(r.Data, req)
 	return r, nil
 }
 
-func (p *neteaseProvider) SongList(playlistID string) (*Result[Music], error) {
+func (p *neteaseProvider) SongList(playlistID string) (*pb.MusicResult, error) {
 	songs, err := p.client.PlaylistSongs(playlistID)
 	if err != nil {
 		return nil, err
 	}
-	return &Result[Music]{Total: int64(len(songs)), Data: songs}, nil
+	return &pb.MusicResult{Total: int64(len(songs)), Data: songs}, nil
 }
 
-func (p *neteaseProvider) GetSong(id string) (*Song, error) {
+func (p *neteaseProvider) GetSong(ctx context.Context, id string) (*pb.Song, error) {
 	songs, err := p.client.GetSongDetail([]string{id})
 	if err != nil {
 		return nil, err
@@ -137,18 +142,18 @@ func (p *neteaseProvider) GetSong(id string) (*Song, error) {
 	url, _ := p.client.GetDownloadURL(id)
 	lyric, _ := p.client.GetLyrics(id)
 
-	return &Song{
+	return &pb.Song{
 		Type:       "music",
-		URL:        url,
-		WebURL:     types.NetEase.WebURL(id),
-		PictureURL: m.Cover,
+		Url:        url,
+		WebUrl:     music.NetEase.WebURL(id),
+		PictureUrl: m.Cover,
 		Duration:   m.Duration,
-		Source:     types.NetEase.String(),
+		Source:     music.NetEase.String(),
 		Lyric:      lyric,
 		Artist:     m.Artist,
 		Name:       m.Name,
 		Album:      m.Album,
-		ID:         id,
+		Id:         id,
 	}, nil
 }
 
@@ -159,27 +164,27 @@ type qqProvider struct {
 	kuwo   *kuwo.Client
 }
 
-func (p *qqProvider) Source() types.Source { return types.QQ }
+func (p *qqProvider) Source() music.Source { return music.QQ }
 
-func (p *qqProvider) Search(o SearchOption) (*Result[Music], error) {
-	r, err := p.client.Search(o.Keyword)
+func (p *qqProvider) Search(req *pb.SearchRequest) (*pb.MusicResult, error) {
+	r, err := p.client.Search(req.Keyword)
 	if err != nil {
 		return nil, err
 	}
-	r.Data = paginate(r.Data, o)
+	r.Data = paginate(r.Data, req)
 	return r, nil
 }
 
-func (p *qqProvider) SearchPlaylist(o SearchOption) (*Result[Playlist], error) {
-	r, err := p.client.SearchPlaylist(o.Keyword)
+func (p *qqProvider) SearchPlaylist(req *pb.SearchRequest) (*pb.PlaylistResult, error) {
+	r, err := p.client.SearchPlaylist(req.Keyword)
 	if err != nil {
 		return nil, err
 	}
-	r.Data = paginate(r.Data, o)
+	r.Data = paginate(r.Data, req)
 	return r, nil
 }
 
-func (p *qqProvider) GetSong(id string) (*Song, error) {
+func (p *qqProvider) GetSong(ctx context.Context, id string) (*pb.Song, error) {
 	detail, err := p.client.GetSongDetail(id)
 	if err != nil {
 		return nil, err
@@ -188,30 +193,30 @@ func (p *qqProvider) GetSong(id string) (*Song, error) {
 
 	key := detail.Artist + " " + detail.Name
 	klist, err := p.kuwo.Search(key)
-	if len(klist) == 0 || err != nil {
+	if err != nil || klist == nil || len(klist.Data) == 0 {
 		logx.Error("ksearch", key, err)
 		return nil, errors.New("qq song: no playable source found")
 	}
 
-	rid := klist[0].ID
+	rid := klist.Data[0].Id
 	url, err := p.kuwo.GetDownloadURL(rid)
 	if err != nil {
 		logx.Error("kdownload", key, "->", rid, err)
 		return nil, errors.New("qq song: download url unavailable")
 	}
 
-	return &Song{
+	return &pb.Song{
 		Type:       "music",
-		URL:        url,
-		WebURL:     types.QQ.WebURL(id),
-		PictureURL: detail.Cover,
+		Url:        url,
+		WebUrl:     music.QQ.WebURL(id),
+		PictureUrl: detail.Cover,
 		Duration:   detail.Duration,
-		Source:     types.QQ.String(),
+		Source:     music.QQ.String(),
 		Lyric:      lyric,
 		Artist:     detail.Artist,
 		Name:       detail.Name,
 		Album:      detail.Album,
-		ID:         id,
+		Id:         id,
 	}, nil
 }
 
@@ -219,30 +224,35 @@ func (p *qqProvider) GetSong(id string) (*Song, error) {
 // 零值即可使用。
 type taskProvider struct{}
 
-func (taskProvider) Source() types.Source { return types.URLCommon }
+func (taskProvider) Source() music.Source { return music.URLCommon }
 
-func (taskProvider) Search(SearchOption) (*Result[Music], error) {
+func (taskProvider) Search(*pb.SearchRequest) (*pb.MusicResult, error) {
 	return nil, errors.New("url_common does not support search")
 }
 
-func (taskProvider) GetSong(id string) (*Song, error) {
+func (taskProvider) GetSong(ctx context.Context, id string) (*pb.Song, error) {
+	if task.Scheduler == nil {
+		return nil, errors.New("music worker scheduler unavailable")
+	}
 	t := task.Scheduler.NewTask("url_common:get_music", map[string]string{"url": id})
-	r := task.Scheduler.Call(t, 3*time.Minute)
-	if r == nil || r.Result == nil {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	r := task.Scheduler.CallContext(ctx, t)
+	if r == nil || !r.Success || r.Result == nil {
 		return nil, errors.New("get song task failed")
 	}
 
 	rg := gjson.ParseBytes(r.Result)
-	return &Song{
+	return &pb.Song{
 		Type:       rg.Get("type").String(),
-		URL:        rg.Get("url").String(),
-		WebURL:     id, // url_common 的 id 即原始 url
-		PictureURL: rg.Get("pictureUrl").String(),
+		Url:        rg.Get("url").String(),
+		WebUrl:     id, // url_common 的 id 即原始 url
+		PictureUrl: rg.Get("pictureUrl").String(),
 		Duration:   rg.Get("duration").Int(),
-		Source:     types.URLCommon.String(),
+		Source:     music.URLCommon.String(),
 		Artist:     rg.Get("artist").String(),
 		Name:       rg.Get("name").String(),
 		Album:      rg.Get("al.name").String(),
-		ID:         id,
+		Id:         id,
 	}, nil
 }

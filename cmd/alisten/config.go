@@ -6,9 +6,6 @@ import (
 	"strings"
 
 	"github.com/bihua-university/alisten/internal/base"
-	"github.com/bihua-university/alisten/internal/logx"
-	"github.com/bihua-university/alisten/internal/mpipe"
-	"github.com/bihua-university/alisten/internal/music"
 )
 
 // authConfig 校验管理接口的 Bearer Token（即 config.json 中的 token）。
@@ -30,11 +27,16 @@ func getCookieHTTP(w http.ResponseWriter, r *http.Request) {
 	if !authConfig(w, r) {
 		return
 	}
-	writeJSON(w, http.StatusOK, base.H{"set": base.Config.Cookie != ""})
+	set, err := musicClient.CookieStatus(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, base.H{"error": "音乐服务不可用"})
+		return
+	}
+	writeJSON(w, http.StatusOK, base.H{"set": set})
 }
 
 // setCookieHTTP 更新音乐 Cookie：即时生效，并持久化到 config.json。
-func setCookieHTTP(w http.ResponseWriter, r *http.Request, pipe *mpipe.Pipe) {
+func setCookieHTTP(w http.ResponseWriter, r *http.Request) {
 	if !authConfig(w, r) {
 		return
 	}
@@ -52,14 +54,10 @@ func setCookieHTTP(w http.ResponseWriter, r *http.Request, pipe *mpipe.Pipe) {
 		return
 	}
 
-	// 更新所有使用 Cookie 的组件
-	music.SetNeteaseCookie(cookie)
-	pipe.SetCookie(cookie)
-
-	persisted := true
-	if err := base.SetCookie(cookie); err != nil {
-		logx.Error("persist cookie:", err)
-		persisted = false
+	persisted, err := musicClient.SetCookie(r.Context(), cookie)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, base.H{"error": "音乐服务不可用"})
+		return
 	}
 	writeJSON(w, http.StatusOK, base.H{"message": "ok", "persisted": persisted})
 }

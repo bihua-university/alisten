@@ -13,6 +13,7 @@ func TestInitConfig(t *testing.T) {
 		"addr": ":8080",
 		"token": "test-token",
 		"music": {
+			"rpc": {"address": "localhost:9090", "http_url": "http://localhost:8081", "timeout_seconds": 210},
 			"netease": "http://localhost:3000",
 			"cookie": "MUSIC_U=abc",
 			"qq": "http://localhost:3300"
@@ -35,6 +36,9 @@ func TestInitConfig(t *testing.T) {
 	}
 	if !Config.Debug || Config.Pgsql != "host=localhost" {
 		t.Errorf("unexpected debug/pgsql: %+v", Config)
+	}
+	if Config.MusicRPC.Address != "localhost:9090" || Config.MusicRPC.HTTPURL != "http://localhost:8081" || Config.MusicRPC.TimeoutSeconds != 210 {
+		t.Errorf("unexpected music RPC config: %+v", Config.MusicRPC)
 	}
 	if len(Config.Persist) != 1 || Config.Persist[0].ID != "room" || Config.Persist[0].Password != "pw" {
 		t.Errorf("unexpected persist: %+v", Config.Persist)
@@ -77,5 +81,30 @@ func TestSetCookie(t *testing.T) {
 	}
 	if m["addr"] != ":8080" {
 		t.Errorf("other field lost: %s", data)
+	}
+}
+
+func TestLoadMusicdConfigAndPersistCookie(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("musicd-config.json", []byte(`{"token":"worker-token","music":{"cookie":"old"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadConfig("musicd-config.json"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { configPath = "config.json" })
+	if err := SetCookie("new"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile("musicd-config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config configFile
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Music.Cookie != "new" || config.Token != "worker-token" {
+		t.Fatalf("persisted config: %s", data)
 	}
 }

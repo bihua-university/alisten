@@ -1,0 +1,7 @@
+{
+    "token": "your-auth-token-here",
+    "debug": false,
+    "music": {
+        "cookie": ""
+    }
+}

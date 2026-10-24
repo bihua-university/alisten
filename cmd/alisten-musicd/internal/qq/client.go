@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/music/internal/utils"
+	"github.com/bihua-university/alisten/cmd/alisten-musicd/internal/utils"
 )
 
 const (

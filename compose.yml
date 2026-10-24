@@ -2,6 +2,9 @@ services:
   # Alisten 服务
   alisten:
     image: ghcr.io/bihua-university/alisten:latest
+    build:
+      context: .
+      dockerfile: docker/alisten.Dockerfile
     container_name: alisten
     volumes:
       - ./config.json:/app/config.json:ro
@@ -12,10 +15,30 @@ services:
       - "8080:8080"
     networks:
       - alisten-network
+    depends_on:
+      alisten-musicd:
+        condition: service_healthy
+
+  alisten-musicd:
+    image: ghcr.io/bihua-university/alisten-musicd:latest
+    build:
+      context: .
+      dockerfile: docker/alisten-musicd.Dockerfile
+    container_name: alisten-musicd
+    volumes:
+      - ./musicd-config.json:/app/musicd-config.json
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - alisten-network
 
   # Musiclet-py 工作服务
   musiclet-py:
-    image: musiclet-py:latest
+    image: ghcr.io/bihua-university/alisten-musiclet-py:latest
+    build:
+      context: .
+      dockerfile: docker/musiclet-py.Dockerfile
     container_name: alisten-musiclet-py
     volumes:
       - ./musiclet-config.json:/app/config.json:ro

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math/rand"
 	"net/http"
+	"time"
 )
 
 // Client 是带有默认请求头的 HTTP 客户端，零值即可使用。
@@ -44,7 +45,7 @@ func (c *Client) do(req *http.Request, header http.Header) ([]byte, error) {
 		req.Header.Set("X-Forwarded-For", ip)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := upstreamHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -69,3 +70,5 @@ func randomIP() string {
 	p := prefixes[rand.Intn(len(prefixes))]
 	return fmt.Sprintf("%d.%d.%d.%d", p[0], p[1], rand.Intn(256), rand.Intn(256))
 }
+
+var upstreamHTTPClient = &http.Client{Timeout: 30 * time.Second}

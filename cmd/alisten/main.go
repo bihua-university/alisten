@@ -8,18 +8,18 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/bihua-university/alisten/cmd/alisten/internal/rpc/musicd"
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
-	"github.com/bihua-university/alisten/internal/mpipe"
-	"github.com/bihua-university/alisten/internal/music"
 	"github.com/bihua-university/alisten/internal/syncx"
-	"github.com/bihua-university/alisten/internal/task"
 	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/caddyserver/certmagic"
@@ -31,11 +31,26 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+var musicClient *musicd.Client
+
+func musicHTTPURL() string {
+	if base.Config.MusicRPC.HTTPURL != "" {
+		return base.Config.MusicRPC.HTTPURL
+	}
+	return "http://127.0.0.1:8081"
+}
+
 func main() {
-	base.InitConfig()
+	if err := base.LoadConfig("config.json"); err != nil {
+		logx.Fatal("load config:", err)
+	}
 	logx.SetDebug(base.Config.Debug)
-	music.Init()
-	task.Scheduler = task.NewServer(base.Config.Token)
+	address := base.Config.MusicRPC.Address
+	if address == "" {
+		address = "127.0.0.1:9090"
+	}
+	musicClient = musicd.NewClient(address, time.Duration(base.Config.MusicRPC.TimeoutSeconds)*time.Second)
+	defer musicClient.Close()
 	handler := newHandler()
 	for _, house := range base.Config.Persist {
 		createHouse(house.ID, house.Name, house.Desc, house.Password, true)
@@ -63,14 +78,15 @@ func newHandler() http.Handler {
 	mux.HandleFunc("POST /music/searchsonglist", wrapWebsocket(searchList))
 	mux.HandleFunc("POST /music/playmode", wrapWebsocket(playMode))
 
-	musicPipe := mpipe.New(base.Config.Cookie, 0, 0)
-	mux.HandleFunc("GET /music/file", musicPipe.ServeHTTP)
-	mux.HandleFunc("GET /tasks/poll", task.Scheduler.PollTaskHandler)
-	mux.HandleFunc("POST /tasks/result", task.Scheduler.SubmitResultHandler)
+	upstream, err := url.Parse(musicHTTPURL())
+	if err != nil || upstream.Host == "" || (upstream.Scheme != "http" && upstream.Scheme != "https") {
+		panic("invalid music.rpc.http_url")
+	}
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	mux.Handle("GET /tasks/poll", proxy)
+	mux.Handle("POST /tasks/result", proxy)
 	mux.HandleFunc("GET /config/cookie", getCookieHTTP)
-	mux.HandleFunc("POST /config/cookie", func(w http.ResponseWriter, r *http.Request) {
-		setCookieHTTP(w, r, musicPipe)
-	})
+	mux.HandleFunc("POST /config/cookie", setCookieHTTP)
 	mux.HandleFunc("/server", serveWebsocket)
 	return corsMiddleware(logMiddleware(mux))
 }

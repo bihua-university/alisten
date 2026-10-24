@@ -46,7 +46,7 @@ jobs:
           tags: ${{ steps.meta-alisten.outputs.tags }}
           labels: ${{ steps.meta-alisten.outputs.labels }}
 
-  musiclet:
+  alisten-musicd:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -58,11 +58,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata for musiclet
-        id: meta-musiclet
+      - name: Extract metadata for alisten-musicd
+        id: meta-alisten-musicd
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/bihua-university/alisten-musiclet
+          images: ghcr.io/bihua-university/alisten-musicd
           tags: |
             type=ref,event=branch
             type=sha,prefix=sha-
@@ -75,14 +75,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push musiclet image
+      - name: Build and push alisten-musicd image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/musiclet.Dockerfile
+          file: docker/alisten-musicd.Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-musiclet.outputs.tags }}
-          labels: ${{ steps.meta-musiclet.outputs.labels }}
+          tags: ${{ steps.meta-alisten-musicd.outputs.tags }}
+          labels: ${{ steps.meta-alisten-musicd.outputs.labels }}
 
   musiclet-py:
     runs-on: ubuntu-latest

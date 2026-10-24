@@ -12,6 +12,7 @@ import (
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/google/uuid"
@@ -21,21 +22,22 @@ import (
 // Provider calls stay outside the room lock. Per-room dependencies also allow
 // the complete websocket contract to be exercised without external services.
 type musicBackend struct {
-	Load      func(string, string, bool) (*music.Song, error)
-	Search    func(music.SearchOption) (music.Result[music.Music], error)
-	Playlists func(music.SearchOption) (music.Result[music.Playlist], error)
-	SongList  func(music.SearchOption) (music.Result[music.Music], error)
-	Loudness  func(string, string) float64
-	Analyze   func(string, string)
+	Load      func(context.Context, *pb.SongRequest) (*pb.Song, error)
+	Search    func(context.Context, *pb.SearchRequest) (pb.MusicResult, error)
+	Playlists func(context.Context, *pb.SearchRequest) (pb.PlaylistResult, error)
+	SongList  func(context.Context, *pb.SearchRequest) (pb.MusicResult, error)
+	Loudness  func(context.Context, string, string) (float64, error)
 }
 
 type recommender interface {
 	AddHistory(string)
 	Mark(string)
-	Recommend([]string) []string
+	Recommend(context.Context, []string) []string
 }
 
 type House struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
 	Mu         sync.Mutex
 	Name       string
 	Desc       string
@@ -69,7 +71,8 @@ var housesMu sync.Mutex
 var houses = make(map[string]*House)
 
 func newHouse(name, desc, password string, persist bool) *House {
-	h := &House{
+	ctx, cancel := context.WithCancel(context.Background())
+	h := &House{ctx: ctx, cancel: cancel,
 		Name:           name,
 		Desc:           desc,
 		Password:       password,
@@ -80,11 +83,12 @@ func newHouse(name, desc, password string, persist bool) *House {
 		lastActiveTime: time.Now(),
 		close:          make(chan struct{}),
 		stopped:        make(chan struct{}),
-		recommander:    music.NewRecommender(),
+		recommander:    music.NewRecommender(musicClient.Similar),
 		playback:       protocol.PlaybackData{VolumeCoefficient: 1},
 		backend: musicBackend{
-			Load: music.GetMusic, Search: music.SearchMusic, Playlists: music.SearchPlaylist,
-			SongList: music.GetSongList, Loudness: music.GetLoudnessCoefficient, Analyze: music.AnalyzeLoudnessAsync,
+			Load: musicClient.Load, Search: musicClient.Search,
+			Playlists: musicClient.Playlists, SongList: musicClient.SongList,
+			Loudness: musicClient.Loudness,
 		},
 	}
 	burst := 5
@@ -272,11 +276,11 @@ func (h *House) Skip(force bool) bool {
 }
 
 func (h *House) push(order Order, generation uint64) bool {
-	var song *music.Song
+	var song *pb.Song
 	for {
 		var err error
-		song, err = h.backend.Load(order.source, order.id, false)
-		if err == nil && song != nil && song.URL != "" {
+		song, err = h.backend.Load(h.ctx, &pb.SongRequest{Source: order.source, Id: order.id})
+		if err == nil && song != nil && song.Url != "" {
 			break
 		}
 		var changed bool
@@ -296,11 +300,14 @@ func (h *House) push(order Order, generation uint64) bool {
 			return changed
 		}
 	}
-	song = proxyMusicURL(song)
 	order.song = *song
-	order.song.ID, order.song.Source = order.id, order.source
+	order.song.Id, order.song.Source = order.id, order.source
 	order.song.Duration = max(order.song.Duration, 0)
-	coefficient := h.backend.Loudness(order.source, order.id)
+	coefficient, err := h.backend.Loudness(h.ctx, order.source, order.id)
+	if err != nil {
+		logx.Error("music loudness RPC:", err)
+		coefficient = 1
+	}
 	applied := false
 	h.lock(func() {
 		if h.closed || h.generation != generation {
@@ -348,17 +355,17 @@ func (h *House) recommendNext(generation uint64) {
 	if !eligible {
 		return
 	}
-	ids := h.recommander.Recommend(nil)
+	ids := h.recommander.Recommend(h.ctx, nil)
 	if len(ids) == 0 {
 		return
 	}
 	id := ids[rand.IntN(len(ids))]
-	song, err := h.backend.Load("netease", id, true)
-	if err != nil || song == nil || song.URL == "" {
+	song, err := h.backend.Load(h.ctx, &pb.SongRequest{Source: "netease", Id: id, UseCache: true})
+	if err != nil || song == nil || song.Url == "" {
 		return
 	}
 	order := Order{source: "netease", id: id, user: auth.User{Name: "系统推荐"}, song: *song}
-	order.song.ID, order.song.Source = id, order.source
+	order.song.Id, order.song.Source = id, order.source
 	added := false
 	h.lock(func() {
 		if h.closed || h.generation != generation || len(h.Playlist) != 0 ||
@@ -371,8 +378,17 @@ func (h *House) recommendNext(generation uint64) {
 		added = true
 	})
 	if added {
-		h.backend.Analyze(order.source, order.id)
+		h.prewarmLoudness(h.ctx, order.source, order.id)
 	}
+}
+
+// prewarmLoudness 在后台触发响度分析；Loudness 本身同步返回结果，异步化由调用方负责。
+func (h *House) prewarmLoudness(ctx context.Context, source, id string) {
+	go func() {
+		if _, err := h.backend.Loudness(context.WithoutCancel(ctx), source, id); err != nil {
+			logx.Error("music loudness prewarm RPC:", err)
+		}
+	}()
 }
 
 func (h *House) membersLocked() []auth.User {
@@ -385,7 +401,7 @@ func (h *House) membersLocked() []auth.User {
 
 func (o Order) item() protocol.QueueItem {
 	song := o.song
-	song.ID, song.Source = o.id, o.source
+	song.Id, song.Source = o.id, o.source
 	song.Duration = max(song.Duration, 0)
 	return protocol.QueueItem{Song: protocol.SongData(song), User: protocol.UserData(o.user), Likes: int64(o.likes)}
 }
@@ -478,6 +494,7 @@ func (h *House) closeHouse() {
 			return
 		}
 		h.closed = true
+		h.cancel()
 		close(h.close)
 		for _, conn := range h.Connection {
 			conn.Close()

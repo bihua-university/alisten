@@ -3,7 +3,7 @@ package netease
 import (
 	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/music/internal/types"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 )
 
 // 网易云搜索类型
@@ -16,36 +16,36 @@ const (
 const maxSearchTotal = 100
 
 // Search 搜索歌曲，返回全量结果（分页由上层处理）
-func (c *Client) Search(keyword string) (*types.Result[types.Music], error) {
+func (c *Client) Search(keyword string) (*pb.MusicResult, error) {
 	result, err := c.cloudSearch(keyword, searchTypeSong)
 	if err != nil {
 		return nil, err
 	}
 
-	var data []*types.Music
+	var data []*pb.Music
 	result.Get("songs").ForEach(func(_, item gjson.Result) bool {
 		data = append(data, parseMusic(item))
 		return true
 	})
-	return &types.Result[types.Music]{
+	return &pb.MusicResult{
 		Total: min(result.Get("songCount").Int(), maxSearchTotal),
 		Data:  data,
 	}, nil
 }
 
 // SearchPlaylist 搜索歌单，返回全量结果（分页由上层处理）
-func (c *Client) SearchPlaylist(keyword string) (*types.Result[types.Playlist], error) {
+func (c *Client) SearchPlaylist(keyword string) (*pb.PlaylistResult, error) {
 	result, err := c.cloudSearch(keyword, searchTypePlaylist)
 	if err != nil {
 		return nil, err
 	}
 
-	var data []*types.Playlist
+	var data []*pb.Playlist
 	result.Get("playlists").ForEach(func(_, item gjson.Result) bool {
-		data = append(data, &types.Playlist{
-			ID:         item.Get("id").String(),
+		data = append(data, &pb.Playlist{
+			Id:         item.Get("id").String(),
 			Name:       item.Get("name").String(),
-			PictureURL: item.Get("coverImgUrl").String(),
+			PictureUrl: item.Get("coverImgUrl").String(),
 			Desc:       item.Get("description").String(),
 			Creator:    item.Get("creator.nickname").String(),
 			PlayCount:  item.Get("playCount").Int(),
@@ -53,7 +53,7 @@ func (c *Client) SearchPlaylist(keyword string) (*types.Result[types.Playlist], 
 		})
 		return true
 	})
-	return &types.Result[types.Playlist]{
+	return &pb.PlaylistResult{
 		Total: min(result.Get("playlistCount").Int(), maxSearchTotal),
 		Data:  data,
 	}, nil

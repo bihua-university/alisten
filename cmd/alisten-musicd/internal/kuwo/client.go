@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bihua-university/alisten/internal/music/internal/types"
-	"github.com/bihua-university/alisten/internal/music/internal/utils"
+	"github.com/bihua-university/alisten/cmd/alisten-musicd/internal/utils"
+	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 	"github.com/tidwall/gjson"
 )
 
@@ -23,7 +24,7 @@ func New() *Client {
 
 var httpClient = &utils.Client{RandomIP: true}
 
-func (c *Client) Search(keyword string) ([]types.Music, error) {
+func (c *Client) Search(keyword string) (*pb.MusicResult, error) {
 	params := url.Values{}
 	params.Set("vipver", "1")
 	params.Set("client", "kt")
@@ -49,7 +50,7 @@ func (c *Client) Search(keyword string) ([]types.Music, error) {
 	}
 
 	result := gjson.ParseBytes(body).Get("abslist")
-	var songs []types.Music
+	var data []*pb.Music
 	result.ForEach(func(_, item gjson.Result) bool {
 		if item.Get("bitSwitch").Int() == 0 {
 			return true
@@ -58,17 +59,17 @@ func (c *Client) Search(keyword string) ([]types.Music, error) {
 		cleanID := strings.TrimPrefix(item.Get("MUSICRID").String(), "MUSIC_")
 		duration, _ := strconv.ParseInt(item.Get("DURATION").String(), 10, 64)
 
-		songs = append(songs, types.Music{
-			ID:       cleanID,
+		data = append(data, &pb.Music{
+			Id:       cleanID,
 			Name:     item.Get("SONGNAME").String(),
 			Artist:   item.Get("ARTIST").String(),
 			Album:    item.Get("ALBUM").String(),
 			Duration: duration * 1000,
 			Cover:    item.Get("hts_MVPIC").String(),
-			Source:   types.KuWo,
+			Source:   int32(music.KuWo),
 		})
 		return true
 	})
 
-	return songs, nil
+	return &pb.MusicResult{Total: int64(len(data)), Data: data}, nil
 }

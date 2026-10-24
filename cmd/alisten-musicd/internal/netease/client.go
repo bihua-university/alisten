@@ -13,8 +13,9 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/music/internal/types"
-	"github.com/bihua-university/alisten/internal/music/internal/utils"
+	"github.com/bihua-university/alisten/cmd/alisten-musicd/internal/utils"
+	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 )
 
 const (
@@ -116,15 +117,15 @@ func checkCode(result gjson.Result) error {
 }
 
 // parseMusic 从单曲数据解析 Music
-func parseMusic(item gjson.Result) *types.Music {
-	return &types.Music{
-		ID:       item.Get("id").String(),
+func parseMusic(item gjson.Result) *pb.Music {
+	return &pb.Music{
+		Id:       item.Get("id").String(),
 		Name:     item.Get("name").String(),
 		Artist:   parseArtists(item),
 		Album:    item.Get("al.name").String(),
 		Duration: item.Get("dt").Int(),
 		Cover:    item.Get("al.picUrl").String(),
-		Source:   types.NetEase,
+		Source:   int32(music.NetEase),
 	}
 }
 

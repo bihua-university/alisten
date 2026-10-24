@@ -1,6 +1,7 @@
 package music
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"time"
@@ -10,6 +11,7 @@ import (
 
 // Recommender 基于网易云相似歌曲接口做听歌推荐。
 type Recommender struct {
+	similar   func(context.Context, string) ([]string, error)
 	mu        sync.Mutex
 	history   []string                        // music id
 	recommend []string                        // recommended music id
@@ -18,8 +20,8 @@ type Recommender struct {
 
 const maxHistorySize = 32
 
-func NewRecommender() *Recommender {
-	return &Recommender{
+func NewRecommender(similar func(context.Context, string) ([]string, error)) *Recommender {
+	return &Recommender{similar: similar,
 		cache: *expirable.NewLRU[string, []string](128, nil, 30*time.Minute), // 30 minutes
 	}
 }
@@ -78,7 +80,7 @@ func (mr *Recommender) Enabled() bool {
 }
 
 // Recommend 返回推荐的音乐id列表，按照添加顺序返回
-func (mr *Recommender) Recommend(playlist []string) []string {
+func (mr *Recommender) Recommend(ctx context.Context, playlist []string) []string {
 	// we use map to deduplicate music and random access
 
 	mr.mu.Lock()
@@ -110,7 +112,10 @@ func (mr *Recommender) Recommend(playlist []string) []string {
 			return
 		}
 
-		recommend, err := neteaseAPI.GetSimilarSongs(id)
+		if mr.similar == nil || ctx.Err() != nil {
+			return
+		}
+		recommend, err := mr.similar(ctx, id)
 		if err != nil {
 			return
 		}

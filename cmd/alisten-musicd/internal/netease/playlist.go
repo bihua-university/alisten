@@ -5,11 +5,11 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/bihua-university/alisten/internal/music/internal/types"
+	pb "github.com/bihua-university/alisten/internal/proto/musicd"
 )
 
 // GetSongDetail 批量获取歌曲详情
-func (c *Client) GetSongDetail(songIDs []string) ([]*types.Music, error) {
+func (c *Client) GetSongDetail(songIDs []string) ([]*pb.Music, error) {
 	if len(songIDs) == 0 {
 		return nil, nil
 	}
@@ -29,7 +29,7 @@ func (c *Client) GetSongDetail(songIDs []string) ([]*types.Music, error) {
 		return nil, err
 	}
 
-	var data []*types.Music
+	var data []*pb.Music
 	gjson.ParseBytes(body).Get("songs").ForEach(func(_, item gjson.Result) bool {
 		data = append(data, parseMusic(item))
 		return true
@@ -38,7 +38,7 @@ func (c *Client) GetSongDetail(songIDs []string) ([]*types.Music, error) {
 }
 
 // PlaylistSongs 获取歌单的全部歌曲
-func (c *Client) PlaylistSongs(playlistID string) ([]*types.Music, error) {
+func (c *Client) PlaylistSongs(playlistID string) ([]*pb.Music, error) {
 	body, err := c.request(playlistAPI, map[string]any{
 		"id":         playlistID,
 		"n":          0,
@@ -59,7 +59,7 @@ func (c *Client) PlaylistSongs(playlistID string) ([]*types.Music, error) {
 		return true
 	})
 
-	var data []*types.Music
+	var data []*pb.Music
 	const batchSize = 500
 	for i := 0; i < len(songIDs); i += batchSize {
 		end := min(i+batchSize, len(songIDs))

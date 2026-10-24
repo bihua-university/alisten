@@ -13,7 +13,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/bihua-university/alisten/internal/music/wav"
+	"github.com/bihua-university/alisten/cmd/alisten-musicd/internal/wav"
 )
 
 // SpotifyTarget 是 Spotify 播放器响度归一化的目标响度 (LUFS)。
