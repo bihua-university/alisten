@@ -211,25 +211,35 @@ func (h *House) broadcastLocked(message any) {
 	}
 }
 
+// broadcastQueueLocked 广播完整队列快照，只用于增删、排序、成员变化等结构性变化。
 func (h *House) broadcastQueueLocked() {
 	h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queue.Snapshot(int64(len(h.Connection)))))
 }
 
-func (h *House) broadcastPlaybackAndQueueLocked() {
-	playback, _ := h.queue.Playback()
-	h.broadcastLocked(protocol.Event(protocol.EventPlaybackUpdated, playback))
-	h.broadcastQueueLocked()
+// broadcastQueueRemovedLocked 只广播离开待播队列的那一首歌，
+// 客户端按 source/id 从本地列表删除，随机播放时也无需知道下标。
+func (h *House) broadcastQueueRemovedLocked(track musicqueue.Track) {
+	h.broadcastLocked(protocol.Event(protocol.EventQueueRemoved, protocol.SongRef{
+		ID: track.ID, Source: protocol.Source(track.Source),
+	}))
 }
 
+func (h *House) broadcastPlaybackLocked() {
+	playback, _ := h.queue.Playback()
+	h.broadcastLocked(protocol.Event(protocol.EventPlaybackUpdated, playback))
+}
+
+// broadcastTransitionLocked 只下发变化的部分：取走一首歌时广播该歌曲引用，
+// 没有下一首时广播空的播放状态；两种情况都不再重复整份等待队列。
 func (h *House) broadcastTransitionLocked(transition musicqueue.Transition) {
 	if !transition.Changed {
 		return
 	}
 	if transition.Track.ID == "" {
-		h.broadcastPlaybackAndQueueLocked()
-	} else {
-		h.broadcastQueueLocked()
+		h.broadcastPlaybackLocked()
+		return
 	}
+	h.broadcastQueueRemovedLocked(transition.Track)
 }
 
 func (h *House) Update() {
@@ -319,7 +329,7 @@ func (h *House) push(order Order, generation uint64) bool {
 		applied = h.queue.Apply(order, generation, coefficient)
 		if applied {
 			h.resetTimerLocked()
-			h.broadcastPlaybackAndQueueLocked()
+			h.broadcastPlaybackLocked()
 		}
 	}
 	h.mu.Unlock()

@@ -62,11 +62,14 @@
 | `members.updated` | `{ users, onlineCount }` |
 | `settings.updated` | `{ playMode }` |
 | `queue.updated` | `{ current: QueueItem \| null, items: QueueItem[], onlineCount }` |
+| `queue.removed` | `{ source, id }`：该歌曲已离开等待队列 |
 | `playback.updated` | `{ song: PlayableSong \| null, user: User \| null, startedAtMs, volumeCoefficient }` |
 | `notice` | `{ code, message }`，例如后台播放加载失败 |
 | `protocol.error` | `{ code, message }` |
 
 加入房间即收到播放、设置、队列、成员快照。成员进入或离开时更新成员和队列人数；修改设置后向所有成员广播完整设置。
+
+切歌不再同步整份队列：取走一首歌时只广播 `queue.removed`，随机播放取走的不是首项，客户端按 `source` 与 `id` 从本地待播列表删除；加载成功后广播 `playback.updated`，没有下一首时只广播空的播放快照。`queue.updated` 表示队列结构变化（点歌、删除、点赞重排、成员增减），客户端收到后整体替换本地列表；本地列表因丢包等原因对不上时，可用 `queue.get` 重新获取快照。
 
 空列表始终为 `[]`。空播放状态为 `{ song: null, user: null, startedAtMs: 0, volumeCoefficient: 1 }`。`current` 与等待队列 `items` 分开；准备中的歌曲暂不在等待队列中。没有下一首时保留最后播放的歌曲信息，客户端应结合时长停止播放。
 

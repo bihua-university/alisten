@@ -215,6 +215,7 @@ const (
 	EventChatMessage        = "chat.message"
 	EventMembersUpdated     = "members.updated"
 	EventQueueUpdated       = "queue.updated"
+	EventQueueRemoved       = "queue.removed"
 	EventPlaybackUpdated    = "playback.updated"
 	EventSettingsUpdated    = "settings.updated"
 	EventNotice             = "notice"
@@ -243,6 +244,7 @@ var Events = map[string]string{
 	"chat.message":     "ChatData",
 	"members.updated":  "MembersData",
 	"queue.updated":    "QueueData",
+	"queue.removed":    "SongRef",
 	"playback.updated": "PlaybackData",
 	"settings.updated": "SettingsData",
 	"notice":           "NoticeData",

@@ -14,7 +14,8 @@ export default function QueuePage({
   compact?: boolean
 }) {
   const songs = useStore(playerStore, s => s.playlist)
-  const current = useStore(playerStore, s => s.queueCurrent)
+  // 正在播放只跟随播放快照，队列快照不会把它覆盖回上一首
+  const current = useStore(playerStore, s => s.currentSong)
   const connected = useStore(
     websocketStore,
     s => s.connectionStatus === 'connected',

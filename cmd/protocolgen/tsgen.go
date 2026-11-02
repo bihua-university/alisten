@@ -39,7 +39,7 @@ func writeTsDef(b *bytes.Buffer, name string, s schema) error {
 		tsName += "Fields"
 	}
 	if len(s.Properties) == 0 {
-		fmt.Fprintf(b, "export type %s = Record<string, never>\n\n", tsName)
+		fmt.Fprintf(b, "export type %s = Record<string, never>\n", tsName)
 	} else {
 		fmt.Fprintf(b, "export interface %s {\n", tsName)
 		for _, p := range keys(s.Properties) {

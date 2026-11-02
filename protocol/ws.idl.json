@@ -820,6 +820,11 @@
       "data": "QueueData"
     },
     {
+      "type": "queue.removed",
+      "goName": "QueueRemoved",
+      "data": "SongRef"
+    },
+    {
       "type": "playback.updated",
       "goName": "PlaybackUpdated",
       "data": "PlaybackData"

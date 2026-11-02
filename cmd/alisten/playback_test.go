@@ -203,19 +203,59 @@ func TestPlaybackStopPublishesIdle(t *testing.T) {
 	if !h.Skip(true) {
 		t.Fatal("stop failed")
 	}
-	for _, event := range []string{protocol.EventPlaybackUpdated, protocol.EventQueueUpdated} {
-		select {
-		case raw := <-conn.send:
-			message := gjson.ParseBytes(raw)
-			if message.Get("type").String() != event {
-				t.Fatalf("unexpected event: %s", raw)
-			}
-			if message.Get("data.song").Type != gjson.Null || message.Get("data.current").Type != gjson.Null {
-				t.Fatalf("stop published stale song: %s", raw)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("missing %s event", event)
+	select {
+	case raw := <-conn.send:
+		message := gjson.ParseBytes(raw)
+		if message.Get("type").String() != protocol.EventPlaybackUpdated {
+			t.Fatalf("unexpected event: %s", raw)
 		}
+		if message.Get("data.song").Type != gjson.Null {
+			t.Fatalf("stop published stale song: %s", raw)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("missing playback.updated event")
+	}
+	// 停止不再重发整份队列，等待队列的清理由前端本地完成。
+	select {
+	case raw := <-conn.send:
+		t.Fatalf("stop re-sent a snapshot: %s", raw)
+	default:
+	}
+}
+
+func TestPlaybackTransitionPublishesDelta(t *testing.T) {
+	h := playbackHouse(t, "next", "last")
+	conn := &Connection{done: make(chan struct{}), send: make(chan []byte, 8)}
+	h.Connection = []*Connection{conn}
+	if !h.Skip(true) {
+		t.Fatal("skip failed")
+	}
+	// 切歌只下发被取走的歌曲与播放快照，等待队列不再整份同步。
+	select {
+	case raw := <-conn.send:
+		message := gjson.ParseBytes(raw)
+		if message.Get("type").String() != protocol.EventQueueRemoved ||
+			message.Get("data.id").String() != "next" ||
+			message.Get("data.source").String() != "qq" {
+			t.Fatalf("unexpected removal event: %s", raw)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("missing queue.removed event")
+	}
+	select {
+	case raw := <-conn.send:
+		message := gjson.ParseBytes(raw)
+		if message.Get("type").String() != protocol.EventPlaybackUpdated ||
+			message.Get("data.song.id").String() != "next" {
+			t.Fatalf("unexpected playback event: %s", raw)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("missing playback.updated event")
+	}
+	select {
+	case raw := <-conn.send:
+		t.Fatalf("transition re-sent a queue snapshot: %s", raw)
+	default:
 	}
 }
 

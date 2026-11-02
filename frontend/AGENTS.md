@@ -183,13 +183,14 @@ WebSocket 服务器地址通过环境变量 `VITE_WS_URL` 配置。
 
 ### 主要广播事件
 
-- `playback.updated`（播放状态）、`queue.updated`（队列快照，含 `current` 与 `items`）、`members.updated`、`chat.message`、`settings.updated`、`notice`、`protocol.error`
+- `playback.updated`（播放状态）、`queue.updated`（队列快照，含 `current` 与 `items`，用于结构变化后的整体替换）、`queue.removed`（切歌时被取走的歌曲，按 `source`/`id` 本地删除）、`members.updated`、`chat.message`、`settings.updated`、`notice`、`protocol.error`
 
 ---
 
 ## 播放器同步机制
 
 - `startedAtMs`：当前歌曲开始播放的服务器时间戳（毫秒），来自 `playback.updated` / `playback.get`
+- 「正在播放」只有 `currentSong` 一个来源，取自播放快照；`queue.updated` 只替换等待队列。用队列快照的 `current` 更新当前歌曲会被旧快照覆盖回上一首
 - `clockOffsetMs`：由心跳（及 `user.update`）响应估计的时钟偏移，`offset = serverTimeMs - (C0 + C1) / 2`，优先取往返时延最小的样本；收到首次样本前为 0
 - 客户端计算播放位置：`elapsedMs = Date.now() + clockOffsetMs - startedAtMs`，再 clamp 到 `[0, durationMs]` 后除以 1000 写入音频
 - 播放开始时间可能领先约 200ms：`elapsedMs < 0` 时等到开始时间再播放，不要误判为时钟错误

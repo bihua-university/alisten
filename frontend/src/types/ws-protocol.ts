@@ -211,6 +211,7 @@ export interface EventDataMap {
   "chat.message": ChatData
   "members.updated": MembersData
   "queue.updated": QueueData
+  "queue.removed": SongRef
   "playback.updated": PlaybackData
   "settings.updated": SettingsData
   "notice": NoticeData

@@ -43,9 +43,11 @@
 // # Events
 //
 // Queue only returns business results and state copies; it never produces
-// broadcast events. House turns those results into complete QueueData or
-// PlaybackData snapshots: ordinary queue changes broadcast a queue snapshot,
-// while a stop or successful skip broadcasts playback and queue snapshots.
+// broadcast events. House turns those results into events: a transition
+// announces only the track that left the waiting queue (queue.removed), a
+// successful load broadcasts the playback snapshot, a stop broadcasts the idle
+// playback snapshot, and ordinary queue changes broadcast a full QueueData
+// snapshot so clients can still resync.
 //
 // House mutates state, fills in the online count, and broadcasts inside one
 // critical section, keeping event order identical to state order. Broadcasts

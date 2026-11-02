@@ -1,5 +1,5 @@
 import type { SearchResult, Song } from '@/types'
-import type { PlaybackData, QueueData, QueueItem, Source } from '@/types/ws-protocol'
+import type { PlaybackData, QueueData, QueueItem, SongRef, Source } from '@/types/ws-protocol'
 import { adaptProtocolUser, getDefaultAvatar } from '@/utils/user'
 import { lyricsStore } from './lyrics-store'
 import { mediaSessionStore } from './media-session-store'
@@ -14,8 +14,6 @@ interface PlayerState {
   startedAtMs: number
   /** 等待队列（不含当前歌曲） */
   playlist: Song[]
-  /** 队列快照中的当前歌曲 */
-  queueCurrent: Song | null
   volume: number
   isMuted: boolean
   needManualStartPlay: boolean
@@ -89,7 +87,6 @@ class PlayerStore extends Store<PlayerState> {
       currentSong: null,
       startedAtMs: 0,
       playlist: [],
-      queueCurrent: null,
       volume: volumeStorage,
       isMuted: muteStorage,
       needManualStartPlay: false,
@@ -102,6 +99,10 @@ class PlayerStore extends Store<PlayerState> {
 
     websocketStore.registerEventHandler('queue.updated', (data) => {
       this.applyQueue(data)
+    })
+
+    websocketStore.registerEventHandler('queue.removed', (data) => {
+      this.removeFromQueue(data)
     })
 
     websocketStore.registerEventHandler('notice', (data) => {
@@ -154,12 +155,24 @@ class PlayerStore extends Store<PlayerState> {
     mediaSessionStore.updateMetadata(music)
   }
 
-  /** 应用队列快照，queue.get 响应与 queue.updated 事件共用 */
+  /**
+   * 应用队列快照，只替换等待队列；「正在播放」一律取自播放快照，
+   * 避免旧快照把刚切到的歌曲覆盖回上一首。
+   */
   private applyQueue(data: QueueData) {
-    this.setState({
-      playlist: data.items.map(mapQueueItem),
-      queueCurrent: data.current ? mapQueueItem(data.current) : null,
-    })
+    this.setState({ playlist: data.items.map(mapQueueItem) })
+  }
+
+  /**
+   * 切歌时服务器只下发被取走的那首歌，这里按 source/id 本地删除。
+   * 随机播放取走的不是首项，同样能正确定位。
+   */
+  private removeFromQueue(ref: SongRef) {
+    const playlist = this.state.playlist
+    const index = playlist.findIndex(song => song.id === ref.id && song.source === ref.source)
+    if (index === -1)
+      return
+    this.setState({ playlist: [...playlist.slice(0, index), ...playlist.slice(index + 1)] })
   }
 
   // 实际播放音量 = 用户音量 × 服务器修正系数，浏览器上限 100%
@@ -430,7 +443,7 @@ class PlayerStore extends Store<PlayerState> {
     audioPlayer?.load()
     this.stopProgressUpdate()
     currentTimeValue = 0
-    this.setState({ currentSong: null, startedAtMs: 0, currentTime: 0, queueCurrent: null, playlist: [], recommendations: [], needManualStartPlay: false })
+    this.setState({ currentSong: null, startedAtMs: 0, currentTime: 0, playlist: [], recommendations: [], needManualStartPlay: false })
     lyricsStore.clearLyrics()
     this.lastLyricContent = ''
     mediaSessionStore.updateMetadata(null)
