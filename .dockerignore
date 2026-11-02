@@ -76,3 +76,8 @@ vendor/
 # Temporary files
 tmp/
 temp/
+
+# Frontend（Go 镜像构建不需要前端依赖与产物）
+frontend/node_modules
+frontend/dist
+frontend/.vite

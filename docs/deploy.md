@@ -129,6 +129,22 @@ go test ./...
 go vet ./...
 ```
 
+## 前端部署
+
+前端位于仓库 `frontend/`，构建为纯静态站点，不由 Go 服务托管：
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+产物在 `frontend/dist`（`index.html`、`assets/`、`sw.js`、`manifest.webmanifest`），把整个目录上传到任意静态服务器或 CDN 即可。构建产物使用绝对路径，站点需要部署在域名根路径。
+
+后端地址在构建时注入，见 `frontend/.env.production` 的 `VITE_WS_URL`、`VITE_API_URL`，修改后必须重新构建；流水线中也可以用同名环境变量覆盖。主服务已为 HTTP 接口开启 CORS，前端可以与后端部署在不同域名下。
+
+原 `alisten-ui` 仓库的七牛上传流水线（安装依赖 → `npm run build` → 上传 `dist`）迁入本仓库时，改为在 `frontend/` 下安装和构建、上传 `frontend/dist`。
+
 ## 运维
 
 ```bash

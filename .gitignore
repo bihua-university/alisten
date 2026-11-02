@@ -18,3 +18,11 @@ test_*.py
 config
 *.log
 test_config.json
+
+# 前端（依赖、构建产物与本地环境覆盖）
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/dev-dist
+frontend/.env.*.local
+frontend/.direnv

@@ -2,6 +2,23 @@
 
 一个音乐播放和房间管理系统，支持从 Bilibili、网易云音乐、QQ音乐等平台获取音乐。
 
+## 仓库结构
+
+本仓库是 Go 后端 + React 前端的 monorepo：
+
+| 路径 | 内容 |
+| --- | --- |
+| `cmd/alisten` | 主服务：房间、队列、播放同步、HTTP 与 WebSocket 接口 |
+| `cmd/alisten-musicd` | 音乐平台服务：曲库查询、播放链接、响度分析 |
+| `cmd/musiclet-py` | 可选的通用 URL 下载 worker |
+| `frontend/` | 前端：React 18 + TypeScript + Vite + TailwindCSS，支持 PWA |
+| `protocol/` | WebSocket v1 协议 IDL 与生成代码 |
+| `internal/` | 后端共享包：RPC、鉴权、日志、同步工具等 |
+| `compose.yml` | Docker Compose 编排 |
+| `docs/` | [部署指南](docs/deploy.md) 与 [协议说明](docs/protocol.md) |
+
+`frontend/` 由原 [alisten-ui](https://github.com/bihua-university/alisten-ui) 仓库整体导入，以普通目录保存，不使用 git submodule，克隆后即可直接修改和提交前端代码。前端独立构建为静态站点，产物 `frontend/dist` 由 CDN 或任意静态服务器托管，Go 服务不托管页面。
+
 ## Config
 
 主服务 `alisten` 通过 [RomiChan/protobuf 的 RPC 框架](https://github.com/RomiChan/protobuf/tree/main/rpc) 调用独立的 `alisten-musicd`。平台客户端、歌曲缓存与响度分析由 musicd 进程持有；房间、队列和听歌历史由主服务持有。
@@ -84,6 +101,25 @@ go build -o alisten-musicd ./cmd/alisten-musicd
 ./alisten-musicd
 ./alisten
 ```
+
+## 前端
+
+前端位于 `frontend/`，与 Go 服务分开构建：
+
+```bash
+cd frontend
+npm ci              # 安装依赖
+npm run dev         # 开发服务器 http://localhost:3000
+npm run type-check  # 类型检查
+npm run lint        # ESLint
+npm run build       # 生产构建，产物在 frontend/dist
+```
+
+构建时通过环境变量注入后端地址：`VITE_WS_URL`、`VITE_API_URL`、`VITE_APP_NAME`。仓库只提交生产配置 `frontend/.env.production`；没有对应环境变量时前端回退到 `src/utils/config.ts` 中的默认值 `ws://localhost:8080` 与 `http://localhost:8080`，因此本机跑主服务（`debug: true`）即可联调。
+
+需要覆盖任意模式时，在 `frontend/` 下新建 `.env.[mode].local`（例如 `.env.development.local`），Vite 中它的优先级最高且不会进入版本库。主服务已为 HTTP 接口开启 CORS，前后端可以分开域名部署。
+
+前端协作规范与界面规范见 [frontend/AGENTS.md](frontend/AGENTS.md)、[frontend/DESIGN.md](frontend/DESIGN.md)。
 
 ## 部署指南
 

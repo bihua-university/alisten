@@ -1,0 +1,68 @@
+/* Effects stay local; high-frequency progress only changes a transform. */
+.performance-medium .glass-surface,
+.mobile-performance .glass-surface {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.performance-low .glass-surface {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.performance-low .album-large,
+.performance-low .album-card .artwork { box-shadow: none; }
+.performance-low .lyric-line { transition: opacity 160ms ease; }
+.performance-low .search-featured-song,
+.performance-low .search-playlist-card { transition: none; }
+.performance-low .room-card { transition: none; }
+.performance-low .room-card-join { box-shadow: none; transform: none; transition: opacity 120ms ease; }
+.performance-low .modal { animation-duration: 120ms; }
+.performance-low .header-menu .main-nav,
+.performance-low .search-popover,
+.performance-low .member-popover { animation-name: fade-in; animation-duration: 160ms; }
+.performance-low .main-content,
+.performance-low .detail-panel-swap { animation-name: fade-in; animation-duration: 140ms; }
+@keyframes fade-in {
+  from { opacity: 0; transform: none; }
+  to { opacity: 1; transform: none; }
+}
+.performance-low .search-playlist-open { transition-duration: 120ms; }
+.performance-low .detail-panel { animation-duration: 120ms; animation-name: detail-panel-fade-in; }
+.performance-low .detail-panel-closing { animation-name: detail-panel-fade-out; }
+@keyframes detail-panel-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes detail-panel-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.performance-off *,
+.performance-off *::before,
+.performance-off *::after,
+.no-animations *,
+.no-animations *::before,
+.no-animations *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+.performance-off .glass-surface {
+  background: var(--color-sidebar);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.performance-off * {
+  box-shadow: none !important;
+  filter: none !important;
+  will-change: auto !important;
+}
+.performance-off .room-art { background: var(--color-surface) !important; }
+.performance-off .album-feature { background: var(--color-content); }
+.performance-off .lyrics-scroll { mask-image: none; -webkit-mask-image: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
