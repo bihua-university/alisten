@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/bihua-university/alisten/cmd/alisten/internal/musicqueue"
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music"
@@ -16,12 +15,98 @@ import (
 	"github.com/bihua-university/alisten/protocol"
 )
 
-type Order struct {
-	source string
-	id     string
-	user   auth.User
-	likes  int
-	song   pb.Song
+type Order = musicqueue.Track
+
+func (h *House) addOrder(ctx context.Context, order Order, limit int) *protocol.Error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ctx.Err() != nil || h.closed {
+		return &protocol.Error{Code: protocol.ErrorCodeUnavailable, Message: "请求已取消或房间已关闭"}
+	}
+	switch h.queue.Add(order, limit) {
+	case musicqueue.Full:
+		return &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "已超过最大点歌数量10首，请稍后再试"}
+	case musicqueue.Duplicate:
+		return &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "重复点歌"}
+	}
+	h.lastOrderTime = time.Now()
+	h.broadcastQueueLocked()
+	return nil
+}
+
+func (h *House) removeOrder(id, source, legacyName string, legacy bool) (Order, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return Order{}, false
+	}
+	removed, found := h.queue.Remove(id, source, legacyName, legacy)
+	if found {
+		h.broadcastQueueLocked()
+	}
+	return removed, found
+}
+
+func (h *House) addLike(id, source string, legacyIndex int64, legacy bool) (Order, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return Order{}, false
+	}
+	liked, found := h.queue.AddLike(id, source, legacyIndex, legacy)
+	if found {
+		h.broadcastQueueLocked()
+	}
+	return liked, found
+}
+
+func (h *House) vote(user auth.User) (protocol.VoteResult, musicqueue.Transition, *protocol.Error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return protocol.VoteResult{}, musicqueue.Transition{}, &protocol.Error{Code: protocol.ErrorCodeUnavailable, Message: "房间已关闭"}
+	}
+	result, transition, voteResult := h.queue.Vote(user, len(h.Connection), h.Mode == protocol.PlayModeRandom)
+	h.broadcastTransitionLocked(transition)
+	var err *protocol.Error
+	switch voteResult {
+	case musicqueue.VotePreparing:
+		err = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "正在切歌，请稍后再试"}
+	case musicqueue.VoteNoCurrent:
+		err = &protocol.Error{Code: protocol.ErrorCodeNotFound, Message: "当前没有播放音乐"}
+	case musicqueue.VoteDuplicate:
+		err = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "您已经投过票了"}
+	}
+	return result, transition, err
+}
+
+func (h *House) setPlayMode(mode protocol.PlayMode) protocol.SettingsData {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	switch mode {
+	case protocol.PlayModeSequential, protocol.PlayModeRandom:
+		h.Mode = mode
+		h.broadcastLocked(protocol.Event(protocol.EventSettingsUpdated, protocol.SettingsData{PlayMode: h.Mode}))
+	}
+	return protocol.SettingsData{PlayMode: h.Mode}
+}
+
+func (h *House) playbackSnapshot() (protocol.PlaybackData, Order) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.queue.Playback()
+}
+
+func (h *House) queueSnapshot() protocol.QueueData {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.queue.Snapshot(int64(len(h.Connection)))
+}
+
+func (h *House) queueItems() []Order {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.queue.Items()
 }
 
 func doPickMusic(ctx context.Context, h *House, request protocol.PickRequest, user auth.User) (protocol.PickResult, *protocol.Error) {
@@ -41,41 +126,24 @@ func doPickMusic(ctx context.Context, h *House, request protocol.PickRequest, us
 	if err != nil || song == nil || song.Url == "" {
 		return fail(protocol.ErrorCodeProviderError, "点歌失败，无法获取音乐信息")
 	}
-	order := Order{source: source.String(), id: id, user: user, song: *song}
-	order.song.Id, order.song.Source = id, order.source
-	order.song.Duration = max(order.song.Duration, 0)
+	order := Order{Source: source.String(), ID: id, User: user, Song: *song}
+	order.Song.Id, order.Song.Source = id, order.Source
+	order.Song.Duration = max(order.Song.Duration, 0)
 
-	var enqueueErr *protocol.Error
-	h.lock(func() {
-		switch {
-		case ctx.Err() != nil || h.closed:
-			enqueueErr = &protocol.Error{Code: protocol.ErrorCodeUnavailable, Message: "请求已取消或房间已关闭"}
-		case !h.ultimate && len(h.Playlist) >= 10:
-			enqueueErr = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "已超过最大点歌数量10首，请稍后再试"}
-		case h.preparing.id == id && h.preparing.source == order.source:
-			enqueueErr = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "重复点歌"}
-		default:
-			for _, queued := range h.Playlist {
-				if queued.id == id && queued.source == order.source {
-					enqueueErr = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "重复点歌"}
-					return
-				}
-			}
-			h.Playlist = append(h.Playlist, order)
-			h.lastOrderTime = time.Now()
-		}
-	})
-	if enqueueErr != nil {
+	limit := 0
+	if !h.ultimate {
+		limit = 10
+	}
+	if enqueueErr := h.addOrder(ctx, order, limit); enqueueErr != nil {
 		return protocol.PickResult{}, enqueueErr
 	}
-	h.prewarmLoudness(ctx, order.source, order.id)
-	h.PushPlaylist()
-	h.Update()
+	h.prewarmLoudness(ctx, order.Source, order.ID)
+	h.Skip(false)
 	artist := song.Artist
 	if artist == "" {
 		artist = "unknown"
 	}
-	return protocol.PickResult{ID: id, Source: protocol.Source(order.source), Name: song.Name, Artist: artist}, nil
+	return protocol.PickResult{ID: id, Source: protocol.Source(order.Source), Name: song.Name, Artist: artist}, nil
 }
 
 func searchMusic(c *Context) {
@@ -110,30 +178,18 @@ func deleteMusic(c *Context) {
 	if !legacy && !c.Decode(&request) {
 		return
 	}
-	var removed Order
-	c.WithHouse(func(h *House) {
-		for i, order := range h.Playlist {
-			matches := order.id == request.ID && order.source == music.ParseSource(string(request.Source)).String()
-			if legacy {
-				matches = order.song.Name == c.Get("id").String()
-			}
-			if matches {
-				removed = order
-				h.Playlist = append(h.Playlist[:i], h.Playlist[i+1:]...)
-				h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
-				return
-			}
-		}
-	})
-	if removed.id == "" {
+	removed, found := c.house.removeOrder(
+		request.ID, music.ParseSource(string(request.Source)).String(), c.Get("id").String(), legacy,
+	)
+	if !found {
 		c.Fail(protocol.ErrorCodeNotFound, "未找到要删除的音乐")
 		return
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{"name": removed.song.Name})
+		c.Send(base.H{"name": removed.Song.Name})
 	} else {
-		c.Send(protocol.SongRef{ID: removed.id, Source: protocol.Source(removed.source)})
-		c.Chat("删除音乐 " + removed.song.Name)
+		c.Send(protocol.SongRef{ID: removed.ID, Source: protocol.Source(removed.Source)})
+		c.Chat("删除音乐 " + removed.Song.Name)
 	}
 }
 
@@ -156,41 +212,13 @@ func pickMusic(c *Context) {
 }
 
 func voteSkip(c *Context) {
-	user := c.User()
-	var result protocol.VoteResult
-	var err *protocol.Error
-	var play Order
-	var generation uint64
-	c.WithHouse(func(h *House) {
-		if h.closed {
-			err = &protocol.Error{Code: protocol.ErrorCodeUnavailable, Message: "房间已关闭"}
-			return
-		}
-		if h.preparing.id != "" {
-			err = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "正在切歌，请稍后再试"}
-			return
-		}
-		if h.Current.id == "" {
-			err = &protocol.Error{Code: protocol.ErrorCodeNotFound, Message: "当前没有播放音乐"}
-			return
-		}
-		if slices.Contains(h.VoteSkip, user) {
-			err = &protocol.Error{Code: protocol.ErrorCodeConflict, Message: "您已经投过票了"}
-			return
-		}
-		h.VoteSkip = append(h.VoteSkip, user)
-		result.CurrentVotes = int64(len(h.VoteSkip))
-		result.RequiredVotes = int64(max((len(h.Connection)+2)/3, 1))
-		if result.CurrentVotes >= result.RequiredVotes {
-			play, generation, result.Skipped = h.nextLocked(true)
-		}
-	})
+	result, transition, err := c.house.vote(c.User())
 	if err != nil {
 		c.Fail(err.Code, err.Message)
 		return
 	}
-	if result.Skipped && play.id != "" {
-		result.Skipped = c.house.push(play, generation)
+	if result.Skipped && transition.Track.ID != "" {
+		result.Skipped = c.house.push(transition.Track, transition.Generation)
 	}
 	if c.IsHTTP() {
 		c.Send(base.H{"current_votes": result.CurrentVotes, "required_votes": result.RequiredVotes})
@@ -213,40 +241,18 @@ func goodMusic(c *Context) {
 	if !legacy && !c.Decode(&request) {
 		return
 	}
-	var liked Order
-	c.WithHouse(func(h *House) {
-		index := -1
-		if legacy {
-			// The HTTP index includes the current song at index zero.
-			value := c.Get("index").Int()
-			if value >= 1 && value <= int64(len(h.Playlist)) {
-				index = int(value - 1)
-			}
-		} else {
-			for i, order := range h.Playlist {
-				if order.id == request.ID && order.source == music.ParseSource(string(request.Source)).String() {
-					index = i
-					break
-				}
-			}
-		}
-		if index < 0 {
-			return
-		}
-		h.Playlist[index].likes++
-		liked = h.Playlist[index]
-		sort.SliceStable(h.Playlist, func(i, j int) bool { return h.Playlist[i].likes > h.Playlist[j].likes })
-		h.broadcastLocked(protocol.Event(protocol.EventQueueUpdated, h.queueLocked()))
-	})
-	if liked.id == "" {
+	liked, found := c.house.addLike(
+		request.ID, music.ParseSource(string(request.Source)).String(), c.Get("index").Int(), legacy,
+	)
+	if !found {
 		c.Fail(protocol.ErrorCodeNotFound, "未找到对应音乐")
 		return
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{"name": liked.song.Name, "likes": liked.likes})
+		c.Send(base.H{"name": liked.Song.Name, "likes": liked.Likes})
 	} else {
-		c.Send(protocol.LikeResult{ID: liked.id, Source: protocol.Source(liked.source), Likes: int64(liked.likes)})
-		c.Chat(fmt.Sprintf("%s 点赞%d", liked.song.Name, liked.likes))
+		c.Send(protocol.LikeResult{ID: liked.ID, Source: protocol.Source(liked.Source), Likes: int64(liked.Likes)})
+		c.Chat(fmt.Sprintf("%s 点赞%d", liked.Song.Name, liked.Likes))
 	}
 }
 
@@ -273,19 +279,7 @@ func playMode(c *Context) {
 	} else if !c.Decode(&request) {
 		return
 	}
-	var settings protocol.SettingsData
-	var event any
-	c.WithHouse(func(h *House) {
-		switch request.PlayMode {
-		case protocol.PlayModeSequential, protocol.PlayModeRandom:
-			h.Mode = request.PlayMode
-			event = protocol.Event(protocol.EventSettingsUpdated, protocol.SettingsData{PlayMode: h.Mode})
-		}
-		settings.PlayMode = h.Mode
-	})
-	if event != nil {
-		c.house.Broadcast(event)
-	}
+	settings := c.house.setPlayMode(request.PlayMode)
 	if c.IsHTTP() {
 		c.Send(base.H{"mode": settings.PlayMode})
 	} else {
@@ -294,11 +288,7 @@ func playMode(c *Context) {
 }
 
 func getCurrentMusic(c *Context) {
-	var playback protocol.PlaybackData
-	var current Order
-	c.WithHouse(func(h *House) {
-		playback, current = h.playback, h.Current
-	})
+	playback, current := c.house.playbackSnapshot()
 	if c.IsWebSocket() {
 		c.Send(playback)
 		return
@@ -307,16 +297,14 @@ func getCurrentMusic(c *Context) {
 		c.Fail(protocol.ErrorCodeNotFound, "当前没有播放音乐")
 		return
 	}
-	message := songToH(&current.song)
-	message["pushTime"], message["volumeCoef"], message["user"] = playback.StartedAtMS, playback.VolumeCoefficient, current.user
+	message := songToH(&current.Song)
+	message["pushTime"], message["volumeCoef"], message["user"] = playback.StartedAtMS, playback.VolumeCoefficient, current.User
 	c.Send(message)
 }
 
 func getPlaylist(c *Context) {
 	if c.IsWebSocket() {
-		var data protocol.QueueData
-		c.WithHouse(func(h *House) { data = h.queueLocked() })
-		c.Send(data)
+		c.Send(c.house.queueSnapshot())
 		return
 	}
 	type item struct {
@@ -327,18 +315,17 @@ func getPlaylist(c *Context) {
 		Likes  int       `json:"likes"`
 		User   auth.User `json:"user"`
 	}
-	list := make([]item, 0)
-	c.WithHouse(func(h *House) {
-		for _, order := range h.Playlist {
-			artist := order.song.Artist
-			if artist == "" {
-				artist = "unknown"
-			}
-			list = append(list, item{
-				Name: order.song.Name, Artist: artist, Source: order.source, ID: order.id, Likes: order.likes, User: order.user,
-			})
+	orders := c.house.queueItems()
+	list := make([]item, 0, len(orders))
+	for _, order := range orders {
+		artist := order.Song.Artist
+		if artist == "" {
+			artist = "unknown"
 		}
-	})
+		list = append(list, item{
+			Name: order.Song.Name, Artist: artist, Source: order.Source, ID: order.ID, Likes: order.Likes, User: order.User,
+		})
+	}
 	c.Send(base.H{"playlist": list})
 }
 
@@ -347,13 +334,11 @@ func recommendMusic(c *Context) {
 		return
 	}
 	ids := make([]string, 0)
-	c.WithHouse(func(h *House) {
-		for _, order := range h.Playlist {
-			if music.ParseSource(order.source) == music.NetEase {
-				ids = append(ids, order.id)
-			}
+	for _, order := range c.house.queueItems() {
+		if music.ParseSource(order.Source) == music.NetEase {
+			ids = append(ids, order.ID)
 		}
-	})
+	}
 	recommended := c.house.recommander.Recommend(c.ctx, ids)
 	items := make([]*pb.Music, 0, len(recommended))
 	for _, id := range recommended {

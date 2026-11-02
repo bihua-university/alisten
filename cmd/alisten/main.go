@@ -19,7 +19,6 @@ import (
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
-	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/caddyserver/certmagic"
@@ -108,7 +107,7 @@ func serveWebsocket(w http.ResponseWriter, r *http.Request) {
 	ip := maskIP(r.RemoteAddr)
 	conn := &Connection{
 		conn: wc, ip: ip, user: auth.User{Name: "游客(" + ip + ")"},
-		send: syncx.NewUnboundedChan[[]byte](8), done: make(chan struct{}),
+		send: make(chan []byte, connectionSendBuffer), done: make(chan struct{}),
 	}
 	conn.Start()
 	defer conn.Close()

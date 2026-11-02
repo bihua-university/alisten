@@ -9,7 +9,6 @@ import (
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
-	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/gorilla/websocket"
@@ -38,12 +37,6 @@ func (c *Context) Decode(value any) bool {
 
 func (c *Context) Get(p string) gjson.Result {
 	return c.data.Get(p)
-}
-
-func (c *Context) WithHouse(f func(*House)) {
-	c.house.Mu.Lock()
-	defer c.house.Mu.Unlock()
-	f(c.house)
 }
 
 func (c *Context) IsWebSocket() bool {
@@ -120,9 +113,11 @@ func (c *Context) Wait(kind uint8) bool {
 	return true
 }
 
+const connectionSendBuffer = 64
+
 type Connection struct {
 	ip        string
-	send      syncx.UnboundedChan[[]byte]
+	send      chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
 
@@ -134,10 +129,15 @@ type Connection struct {
 
 func (c *Connection) Start() {
 	go func() {
-		for x := range c.send.Out() {
-			if err := c.conn.WriteMessage(websocket.TextMessage, x); err != nil {
-				c.Close()
+		for {
+			select {
+			case <-c.done:
 				return
+			case x := <-c.send:
+				if err := c.conn.WriteMessage(websocket.TextMessage, x); err != nil {
+					c.Close()
+					return
+				}
 			}
 		}
 	}()
@@ -146,7 +146,6 @@ func (c *Connection) Start() {
 func (c *Connection) Close() {
 	c.closeOnce.Do(func() {
 		close(c.done)
-		close(c.send.In())
 		if c.conn != nil {
 			_ = c.conn.Close()
 		}
@@ -172,6 +171,8 @@ func (c *Connection) SendRaw(j []byte) {
 	logx.Debug("[OUT]:", string(j))
 	select {
 	case <-c.done:
-	case c.send.In() <- j:
+	case c.send <- j:
+	default:
+		c.Close()
 	}
 }

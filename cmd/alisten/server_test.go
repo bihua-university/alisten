@@ -330,9 +330,12 @@ func TestPlaybackReservationAndClose(t *testing.T) {
 			<-release
 			return load(ctx, req)
 		}
-		h.Current = Order{id: "current", source: "qq"}
-		h.End = time.Now().Add(time.Hour)
-		h.Playlist = []Order{{id: "next", source: "qq"}, {id: "last", source: "qq"}}
+		current := Order{ID: "current", Source: "qq", Song: pb.Song{
+			Id: "current", Source: "qq", Duration: int64(time.Hour / time.Millisecond),
+		}}
+		h.queue.Apply(current, 0, 1)
+		h.queue.Add(Order{ID: "next", Source: "qq"}, 0)
+		h.queue.Add(Order{ID: "last", Source: "qq"}, 0)
 	})
 	t.Cleanup(func() {
 		select {
@@ -358,9 +361,9 @@ func TestPlaybackReservationAndClose(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("playback load did not finish")
 	}
-	h.lock(func() {
-		if h.Current.id != "current" || len(h.Playlist) != 1 || h.Playlist[0].id != "last" {
-			t.Fatalf("late load changed a closed room: current=%s queue=%+v", h.Current.id, h.Playlist)
-		}
-	})
+	_, current := h.queue.Playback()
+	items := h.queue.Items()
+	if current.ID != "current" || len(items) != 1 || items[0].ID != "last" {
+		t.Fatalf("late load changed a closed room: current=%s queue=%+v", current.ID, items)
+	}
 }

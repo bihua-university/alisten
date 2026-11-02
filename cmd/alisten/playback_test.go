@@ -10,14 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bihua-university/alisten/internal/auth"
+	"github.com/bihua-university/alisten/cmd/alisten/internal/musicqueue"
 	pb "github.com/bihua-university/alisten/internal/proto/musicd"
-	"github.com/bihua-university/alisten/internal/syncx"
 	"github.com/bihua-university/alisten/protocol"
 	"github.com/tidwall/gjson"
 )
 
-// No ticker or external providers: each test controls exactly when playback advances.
 func playbackHouse(t *testing.T, ids ...string) *House {
 	t.Helper()
 	h := newHouse("playback", "", "", true)
@@ -33,16 +31,28 @@ func playbackHouse(t *testing.T, ids ...string) *House {
 		return &pb.Song{Id: req.Id, Source: req.Source, Url: "https://example.invalid/" + req.Id, Duration: 60000}, nil
 	}
 	h.backend.Loudness = func(context.Context, string, string) (float64, error) { return 0.75, nil }
-	h.Current = Order{id: "current", source: "qq"}
-	current := protocol.PlayableSong{ID: "current", Source: protocol.Source("qq")}
-	h.PushTime = time.Now().UnixMilli()
-	h.End = time.Now().Add(time.Minute)
-	h.playback = protocol.PlaybackData{Song: &current, StartedAtMS: h.PushTime, VolumeCoefficient: 0.75}
+	current := Order{ID: "current", Source: "qq", Song: pb.Song{
+		Id: "current", Source: "qq", Url: "https://example.invalid/current", Duration: 60000,
+	}}
+	if !h.queue.Apply(current, 0, 0.75) {
+		t.Fatal("failed to initialize playback")
+	}
 	for _, id := range ids {
-		h.Playlist = append(h.Playlist, Order{id: id, source: "qq"})
+		if result := h.queue.Add(Order{ID: id, Source: "qq"}, 0); result != musicqueue.Added {
+			t.Fatalf("failed to queue %s: %v", id, result)
+		}
 	}
 	t.Cleanup(h.closeHouse)
 	return h
+}
+
+func expirePlayback(t *testing.T, h *House) {
+	t.Helper()
+	playback, current := h.queue.Playback()
+	current.Song.Duration = -1000
+	if !h.queue.Apply(current, 0, playback.VolumeCoefficient) {
+		t.Fatal("failed to expire playback")
+	}
 }
 
 func playbackVote(h *House, name string) *httptest.ResponseRecorder {
@@ -54,10 +64,13 @@ func playbackVote(h *House, name string) *httptest.ResponseRecorder {
 
 func assertIdlePlayback(t *testing.T, h *House) {
 	t.Helper()
-	if h.Current.id != "" || h.preparing.id != "" || h.playback.Song != nil ||
-		h.playback.User != nil || h.playback.StartedAtMS != 0 || h.PushTime != 0 ||
-		!h.End.IsZero() || len(h.VoteSkip) != 0 || h.queueLocked().Current != nil {
-		t.Fatalf("stale playback after stop: current=%+v playback=%+v votes=%v", h.Current, h.playback, h.VoteSkip)
+	playback, current := h.queue.Playback()
+	if current.ID != "" || playback.Song != nil || playback.User != nil || playback.StartedAtMS != 0 ||
+		len(h.queue.Items()) != 0 || h.queue.Snapshot(0).Current != nil {
+		t.Fatalf("stale playback after stop: current=%+v playback=%+v", current, playback)
+	}
+	if h.Skip(false) || h.Skip(true) {
+		t.Fatal("idle room reported another transition")
 	}
 }
 
@@ -73,15 +86,12 @@ func TestPlaybackEmptyQueue(t *testing.T) {
 					t.Fatalf("skip vote failed: %s", r.Body.String())
 				}
 			} else {
-				h.End = time.Now().Add(-time.Second)
+				expirePlayback(t, h)
 				if !h.Skip(false) {
 					t.Fatal("finished song was not cleared")
 				}
 			}
 			assertIdlePlayback(t, h)
-			if h.Skip(false) || h.Skip(true) {
-				t.Fatal("idle room reported another transition")
-			}
 			if r := playbackVote(h, "alice"); r.Code != http.StatusNotFound {
 				t.Fatalf("idle vote should fail: %d %s", r.Code, r.Body.String())
 			}
@@ -105,16 +115,18 @@ func TestPlaybackSkipsUnavailableSongs(t *testing.T) {
 					t.Fatalf("skip vote failed: %s", r.Body.String())
 				}
 			} else {
-				h.End = time.Now().Add(-time.Second)
+				expirePlayback(t, h)
 				h.Update()
+				if !h.Skip(false) {
+					t.Fatal("finished song did not advance")
+				}
 			}
+			playback, current := h.queue.Playback()
+			items := h.queue.Items()
 			if !slices.Equal(loaded, []string{"error", "nil", "empty-url", "next"}) ||
-				h.Current.id != "next" || h.playback.Song.ID != "next" ||
-				len(h.Playlist) != 1 || h.Playlist[0].id != "last" {
-				t.Fatalf("skip failed to reach next playable song: loaded=%v current=%s queue=%v", loaded, h.Current.id, h.Playlist)
-			}
-			if h.End.UnixMilli() != h.playback.StartedAtMS+h.playback.Song.DurationMS {
-				t.Fatal("song end must include the scheduled start delay")
+				current.ID != "next" || playback.Song.ID != "next" ||
+				len(items) != 1 || items[0].ID != "last" {
+				t.Fatalf("skip failed to reach next playable song: loaded=%v current=%s queue=%v", loaded, current.ID, items)
 			}
 			if h.Skip(false) {
 				t.Fatal("timer consumed another song immediately after the skip")
@@ -129,9 +141,6 @@ func TestPlaybackUnavailableQueueStops(t *testing.T) {
 		t.Fatal("skip did not stop the old song")
 	}
 	assertIdlePlayback(t, h)
-	if len(h.Playlist) != 0 {
-		t.Fatal("unavailable songs remain queued")
-	}
 }
 
 func TestPlaybackVotesDuringLoad(t *testing.T) {
@@ -162,11 +171,9 @@ func TestPlaybackVotesDuringLoad(t *testing.T) {
 	if r := playbackVote(h, "alice"); r.Code == http.StatusOK {
 		t.Fatal("vote was accepted while switching tracks")
 	}
-	h.lock(func() {
-		if len(h.VoteSkip) != 0 || len(h.Playlist) != 1 {
-			t.Fatal("in-flight vote changed the next song's votes or queue")
-		}
-	})
+	if len(h.queue.Items()) != 1 {
+		t.Fatal("in-flight vote changed the queue")
+	}
 	if h.Skip(false) || h.Skip(true) {
 		t.Fatal("concurrent skip consumed another song")
 	}
@@ -179,22 +186,26 @@ func TestPlaybackVotesDuringLoad(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("load did not finish")
 	}
-	if r := playbackVote(h, "alice"); r.Code != http.StatusOK || h.Current.id != "last" {
-		t.Fatalf("loading vote leaked to the next song: %s current=%s", r.Body.String(), h.Current.id)
+	_, current := h.queue.Playback()
+	if r := playbackVote(h, "alice"); r.Code != http.StatusOK || current.ID != "next" {
+		t.Fatalf("loading vote leaked to the next song: %s current=%s", r.Body.String(), current.ID)
+	}
+	_, current = h.queue.Playback()
+	if current.ID != "last" {
+		t.Fatalf("vote did not advance to last song: %s", current.ID)
 	}
 }
 
 func TestPlaybackStopPublishesIdle(t *testing.T) {
 	h := playbackHouse(t)
-	conn := &Connection{done: make(chan struct{}), send: syncx.NewUnboundedChan[[]byte](8)}
+	conn := &Connection{done: make(chan struct{}), send: make(chan []byte, 8)}
 	h.Connection = []*Connection{conn}
-	h.VoteSkip = []auth.User{{Name: "alice"}}
 	if !h.Skip(true) {
 		t.Fatal("stop failed")
 	}
 	for _, event := range []string{protocol.EventPlaybackUpdated, protocol.EventQueueUpdated} {
 		select {
-		case raw := <-conn.send.Out():
+		case raw := <-conn.send:
 			message := gjson.ParseBytes(raw)
 			if message.Get("type").String() != event {
 				t.Fatalf("unexpected event: %s", raw)
@@ -205,5 +216,19 @@ func TestPlaybackStopPublishesIdle(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatalf("missing %s event", event)
 		}
+	}
+}
+
+func TestPlaybackVoteReset(t *testing.T) {
+	h := playbackHouse(t, "next", "last")
+	if r := playbackVote(h, "alice"); r.Code != http.StatusOK {
+		t.Fatal(r.Body.String())
+	}
+	_, current := h.queue.Playback()
+	if current.ID != "next" {
+		t.Fatalf("unexpected current song: %s", current.ID)
+	}
+	if r := playbackVote(h, "alice"); r.Code != http.StatusOK {
+		t.Fatalf("vote was not reset for the next song: %s", r.Body.String())
 	}
 }
