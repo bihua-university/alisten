@@ -8,6 +8,8 @@ import type {
   ResponseDataMap,
   Source,
 } from '@/types/ws-protocol'
+import { getAppConfig } from '@/utils/config'
+import { applyEnvironment } from '@/utils/environment'
 import { notificationStore } from './notification-store'
 import { roomStore } from './room-store'
 import { Store } from './store-base'
@@ -20,7 +22,7 @@ interface WebSocketState {
 }
 
 const config: WebSocketConfig = {
-  url: import.meta.env.VITE_WS_URL || 'ws://localhost:8080',
+  url: '',
   reconnectAttempts: 5,
   reconnectInterval: 3000,
   heartbeatInterval: 5000,
@@ -208,10 +210,11 @@ class WebSocketStore extends Store<WebSocketState> {
       const params = new URLSearchParams({ houseId: roomStore.state.id })
       if (password)
         params.set('housePwd', password)
-      const wsUrl = `${config.url}/server?${params.toString()}`
+      const wsUrl = applyEnvironment(new URL('/server', getAppConfig().websocket.url))
+      wsUrl.search = new URLSearchParams([...wsUrl.searchParams, ...params]).toString()
 
       console.log('连接 WebSocket:', wsUrl)
-      const ws = new WebSocket(wsUrl)
+      const ws = new WebSocket(wsUrl.toString())
 
       ws.onopen = () => {
         if (this.state.ws !== ws || manuallyClosed)

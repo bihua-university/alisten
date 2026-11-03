@@ -169,12 +169,19 @@ func request(ctx context.Context, method, path string, query, form url.Values, t
 			q.Add(key, value)
 		}
 	}
-	if client.namespace != "" && client.namespace != "public" {
-		namespaceKey := "tenant"
-		if strings.HasPrefix(path, "/v1/ns/") {
-			namespaceKey = "namespaceId"
-		}
-		q.Set(namespaceKey, client.namespace)
+	namespaceKey := "tenant"
+	if strings.HasPrefix(path, "/v1/ns/") {
+		namespaceKey = "namespaceId"
+	}
+	// Explicit per-request namespaces take precedence, including public/empty.
+	namespace := client.namespace
+	if q.Has(namespaceKey) {
+		namespace = q.Get(namespaceKey)
+	}
+	if namespace == "" || namespace == "public" {
+		q.Del(namespaceKey)
+	} else {
+		q.Set(namespaceKey, namespace)
 	}
 	if token != "" {
 		q.Set("accessToken", token)

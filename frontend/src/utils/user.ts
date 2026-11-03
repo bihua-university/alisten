@@ -1,5 +1,6 @@
 import type { User } from '@/types'
 import MD5 from 'crypto-js/md5'
+import { environmentStorageKey } from './environment'
 /**
  * 生成 Gravatar 头像 URL
  * @param emailOrHash 邮箱地址或MD5哈希值
@@ -63,7 +64,7 @@ export function adaptProtocolUser(user: { name: string, emailHash: string }): Us
  * @param password 房间密码
  */
 export function saveRoomPassword(roomId: string, password: string): void {
-  localStorage.setItem(`alisten_room_password_${roomId}`, password)
+  localStorage.setItem(environmentStorageKey(`alisten_room_password_${roomId}`), password)
 }
 
 /**
@@ -72,7 +73,7 @@ export function saveRoomPassword(roomId: string, password: string): void {
  * @returns 保存的密码，如果没有则返回 null
  */
 export function getSavedRoomPassword(roomId: string): string | null {
-  return localStorage.getItem(`alisten_room_password_${roomId}`)
+  return localStorage.getItem(environmentStorageKey(`alisten_room_password_${roomId}`))
 }
 
 /**
@@ -80,7 +81,7 @@ export function getSavedRoomPassword(roomId: string): string | null {
  * @param roomId 房间ID
  */
 export function clearRoomPassword(roomId: string): void {
-  localStorage.removeItem(`alisten_room_password_${roomId}`)
+  localStorage.removeItem(environmentStorageKey(`alisten_room_password_${roomId}`))
 }
 
 /**
@@ -88,7 +89,7 @@ export function clearRoomPassword(roomId: string): void {
  * @param roomId 房间ID
  */
 export function saveLastJoinedRoom(roomId: string): void {
-  localStorage.setItem('alisten_last_joined_room', roomId)
+  localStorage.setItem(environmentStorageKey('alisten_last_joined_room'), roomId)
 }
 
 /**
@@ -96,14 +97,14 @@ export function saveLastJoinedRoom(roomId: string): void {
  * @returns 保存的房间ID，如果没有则返回 null
  */
 export function getLastJoinedRoom(): string | null {
-  return localStorage.getItem('alisten_last_joined_room')
+  return localStorage.getItem(environmentStorageKey('alisten_last_joined_room'))
 }
 
 /**
  * 清除保存的上次进入房间记录
  */
 export function clearLastJoinedRoom(): void {
-  localStorage.removeItem('alisten_last_joined_room')
+  localStorage.removeItem(environmentStorageKey('alisten_last_joined_room'))
 }
 
 // 获取默认头像

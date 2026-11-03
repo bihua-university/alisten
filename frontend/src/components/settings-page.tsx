@@ -12,6 +12,7 @@ import { playerStore } from '@/stores/player-store'
 import { userSettingsStore } from '@/stores/user-settings-store'
 import { websocketStore } from '@/stores/websocket-store'
 import { getAppConfig } from '@/utils/config'
+import { applyEnvironment, environmentStorageKey } from '@/utils/environment'
 
 const performanceActions = {
   high: () => performanceStore.setHigh(),
@@ -50,7 +51,7 @@ export default function SettingsPage() {
   const enableSearchHistory = useStore(historyStore, s => s.enableSearchHistory)
   const historyCount = useStore(historyStore, s => s.maxSearchHistoryCount)
   const isRecording = useStore(historyStore, s => s.isRecording)
-  const [savedToken, setSavedToken] = useState(() => localStorage.getItem('alisten-cookie-admin-token') || '')
+  const [savedToken, setSavedToken] = useState(() => localStorage.getItem(environmentStorageKey('alisten-cookie-admin-token')) || '')
   const [changes, setChanges] = useState<Partial<SettingsDraft>>({})
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
@@ -139,7 +140,7 @@ export default function SettingsPage() {
           if (!data.persisted)
             notificationStore.warning('Cookie 已生效，写入配置文件失败，重启后会丢失')
         }
-        localStorage.setItem('alisten-cookie-admin-token', draft.token.trim())
+        localStorage.setItem(environmentStorageKey('alisten-cookie-admin-token'), draft.token.trim())
         setSavedToken(draft.token.trim())
       })
       setChanges((previous) => {
@@ -317,7 +318,7 @@ function SettingRow({ id, title, description, field = false, children }: {
 }
 
 async function requestCookie(token: string, cookie?: string): Promise<{ set?: boolean, persisted?: boolean }> {
-  const url = `${getAppConfig().api.baseUrl.replace(/\/+$/, '')}/config/cookie`
+  const url = applyEnvironment(new URL('/config/cookie', getAppConfig().api.baseUrl))
   const response = await fetch(url, {
     method: cookie === undefined ? 'GET' : 'POST',
     headers: {

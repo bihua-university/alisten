@@ -9,6 +9,7 @@ import { pwaStore } from '@/stores/pwa-store'
 import { userSettingsStore } from '@/stores/user-settings-store'
 import { websocketStore } from '@/stores/websocket-store'
 import { getAppConfig, validateConfig } from '@/utils/config'
+import { getEnvironment } from '@/utils/environment'
 import { setViewportHeight } from '@/utils/mobile'
 
 /** Audio/lifecycle subscriptions stay outside the React rendering path. */
@@ -48,6 +49,8 @@ export function AudioEngine() {
       document.title = song
         ? `${song.title} - ${song.artist} | ${config.app.name}`
         : config.app.name
+      if (getEnvironment() === 'canary')
+        document.title += ' · Canary'
     }
     let lastStatus = websocketStore.state.connectionStatus
     let outageNotified = false

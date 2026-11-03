@@ -38,9 +38,17 @@ var (
 	debugEnabled bool
 )
 
+// Only override dependency discovery; room registration and config remain isolated.
+func discoverMusichubOnce(ctx context.Context) (string, error) {
+	if namespace := strings.TrimSpace(os.Getenv("MUSICHUB_NACOS_NAMESPACE")); namespace != "" {
+		return nacos.DiscoverInNamespace(ctx, "musichub", namespace)
+	}
+	return nacos.Discover(ctx, "musichub")
+}
+
 func discoverMusichub(ctx context.Context) (string, error) {
 	for {
-		address, err := nacos.Discover(ctx, "musichub")
+		address, err := discoverMusichubOnce(ctx)
 		if err == nil {
 			return address, nil
 		}
@@ -58,6 +66,11 @@ func main() {
 	if err := nacos.Init("room-service"); err != nil {
 		logx.Fatal("initialize Nacos:", err)
 	}
+	namespace := strings.TrimSpace(os.Getenv("MUSICHUB_NACOS_NAMESPACE"))
+	if namespace == "" {
+		namespace = "(room-service namespace)"
+	}
+	logx.Info("musichub discovery namespace: ", namespace)
 	debugEnabled = debugMode()
 	logx.SetDebug(debugEnabled)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -69,9 +82,7 @@ func main() {
 	if err != nil {
 		logx.Fatal("discover musichub:", err)
 	}
-	musicClient = musichub.NewDiscoveryClient(address, func(ctx context.Context) (string, error) {
-		return nacos.Discover(ctx, "musichub")
-	}, 0)
+	musicClient = musichub.NewDiscoveryClient(address, discoverMusichubOnce, 0)
 	defer musicClient.Close()
 	for _, house := range cfg.Persist {
 		createHouse(house.ID, house.Name, house.Desc, house.Password, true)

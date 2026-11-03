@@ -1,5 +1,6 @@
 import type { RoomInfo } from '@/types'
 import { getAppConfig } from './config'
+import { applyEnvironment } from './environment'
 
 // 创建房间的接口类型
 export interface CreateRoomRequest {
@@ -22,7 +23,7 @@ export interface CreateRoomResponse {
  */
 export async function createRoom(roomData: CreateRoomRequest): Promise<CreateRoomResponse> {
   const config = getAppConfig()
-  const url = new URL('/house/add', config.api.baseUrl)
+  const url = applyEnvironment(new URL('/house/add', config.api.baseUrl))
 
   try {
     const response = await fetch(url.toString(), {
@@ -52,7 +53,7 @@ export async function createRoom(roomData: CreateRoomRequest): Promise<CreateRoo
  */
 export async function searchRooms(keyword?: string, signal?: AbortSignal): Promise<RoomInfo[]> {
   const config = getAppConfig()
-  const url = new URL('/house/search', config.api.baseUrl)
+  const url = applyEnvironment(new URL('/house/search', config.api.baseUrl))
 
   if (keyword) {
     url.searchParams.append('keyword', keyword)

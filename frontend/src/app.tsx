@@ -20,6 +20,8 @@ import {
   X,
 } from 'lucide-react'
 import { Component, lazy, Suspense, useCallback, useState } from 'react'
+import { applyEnvironment } from '@/utils/environment'
+
 import { AudioEngine } from './components/audio-engine'
 import { DetailPanel } from './components/detail-panel'
 import { HeaderSearch } from './components/header-search'
@@ -148,7 +150,7 @@ export function App() {
     websocketStore.connect()
   }, [setView])
   const share = async () => {
-    const url = new URL(window.location.pathname, window.location.origin)
+    const url = applyEnvironment(new URL(window.location.pathname, window.location.origin))
     url.searchParams.set('houseId', roomStore.state.id)
     url.searchParams.set('housePwd', '')
     try {

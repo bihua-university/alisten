@@ -18,6 +18,21 @@ use tls::CertificateResolver;
 struct Gateway {
     nacos: NacosClient,
     service_name: String,
+    canary_namespace: Option<String>,
+}
+
+fn selected_namespace<'a>(
+    request: &RequestHeader,
+    canary_namespace: Option<&'a str>,
+) -> Option<&'a str> {
+    let is_canary = request.uri.query().is_some_and(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .any(|(key, value)| key == "env" && value == "canary")
+    }) || request
+        .headers
+        .get("X-Alisten-Env")
+        .is_some_and(|value| value == "canary");
+    canary_namespace.filter(|value| !value.trim().is_empty() && is_canary)
 }
 
 #[async_trait]
@@ -28,12 +43,21 @@ impl ProxyHttp for Gateway {
 
     async fn upstream_peer(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> PingoraResult<Box<HttpPeer>> {
+        let namespace = selected_namespace(session.req_header(), self.canary_namespace.as_deref());
+        log::info!(
+            "upstream discovery service={} namespace={}",
+            self.service_name,
+            match self.nacos.namespace(namespace) {
+                "" => "public",
+                value => value,
+            }
+        );
         let address = self
             .nacos
-            .discover(&self.service_name)
+            .discover(&self.service_name, namespace)
             .await
             .map_err(|error| {
                 Error::explain(
@@ -96,6 +120,10 @@ fn main() -> Result<()> {
     let nacos = NacosClient::new(&std::env::var("NACOS_SERVER_ADDR").unwrap_or_default())?;
     let service_name =
         std::env::var("ROOM_SERVICE_NAME").unwrap_or_else(|_| "room-service".to_owned());
+    let canary_namespace = std::env::var("CANARY_NACOS_NAMESPACE")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_owned());
 
     let mut server = Server::new(None)?;
@@ -105,6 +133,7 @@ fn main() -> Result<()> {
         Gateway {
             nacos,
             service_name,
+            canary_namespace,
         },
     );
     proxy.add_tcp(&format!("0.0.0.0:{port}"));
@@ -135,4 +164,29 @@ fn main() -> Result<()> {
 
     server.add_service(proxy);
     server.run_forever();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routes_query_and_header_only_when_canary_enabled() {
+        let mut request = RequestHeader::build(
+            "GET",
+            b"/server?houseId=test&housePwd=a%26b&env=canary",
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            selected_namespace(&request, Some("preview")),
+            Some("preview")
+        );
+        assert_eq!(selected_namespace(&request, None), None);
+        assert_eq!(selected_namespace(&request, Some("")), None);
+        request = RequestHeader::build("GET", b"/house/search?env=prod", None).unwrap();
+        assert_eq!(selected_namespace(&request, Some("canary")), None);
+        request.insert_header("X-Alisten-Env", "canary").unwrap();
+        assert_eq!(selected_namespace(&request, Some("canary")), Some("canary"));
+    }
 }

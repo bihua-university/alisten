@@ -50,16 +50,23 @@ func Deregister(ctx context.Context, serviceName, address string) error {
 
 // Discover returns a healthy instance address for serviceName.
 func Discover(ctx context.Context, serviceName string) (string, error) {
+	return DiscoverInNamespace(ctx, serviceName, getClient().namespace)
+}
+
+// DiscoverInNamespace discovers a service without changing the client's registration
+// or configuration namespace. An empty namespace or "public" selects the public namespace.
+func DiscoverInNamespace(ctx context.Context, serviceName, namespace string) (string, error) {
 	client := getClient()
 	serviceName = namingService(client, serviceName)
 	query := url.Values{
 		"serviceName": {serviceName},
 		"groupName":   {defaultGroup},
 		"healthyOnly": {"true"},
+		"namespaceId": {namespace},
 	}
 	body, err := do(ctx, http.MethodGet, "/v1/ns/instance/list", query, nil)
 	if err != nil {
-		return "", fmt.Errorf("discover Nacos service %s: %w", serviceName, err)
+		return "", fmt.Errorf("discover Nacos service %s in namespace %q: %w", serviceName, namespace, err)
 	}
 	var reply struct {
 		Hosts []struct {
@@ -79,7 +86,7 @@ func Discover(ctx context.Context, serviceName string) (string, error) {
 		}
 	}
 	if len(healthy) == 0 {
-		return "", fmt.Errorf("Nacos service %s has no healthy instances", serviceName)
+		return "", fmt.Errorf("Nacos service %s in namespace %q has no healthy instances", serviceName, namespace)
 	}
 	index := healthy[(discoverySequence.Add(1)-1)%uint64(len(healthy))]
 	instance := reply.Hosts[index]

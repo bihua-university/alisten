@@ -735,3 +735,7 @@ input[type='checkbox'] { width: 16px; height: 16px; flex-shrink: 0; }
 @media (prefers-reduced-transparency: reduce) {
   .glass-surface { background: var(--color-sidebar); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
+
+.help-version { align-self: flex-start; padding: 8px 0; user-select: none; touch-action: none; -webkit-touch-callout: none; }
+.environment-options { display: flex; flex-direction: column; gap: 12px; }
+.environment-options [aria-pressed="true"] { color: var(--color-primary); }

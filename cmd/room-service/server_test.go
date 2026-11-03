@@ -15,6 +15,7 @@ import (
 
 	"github.com/bihua-university/alisten/cmd/room-service/internal/config"
 	"github.com/bihua-university/alisten/internal/music"
+	"github.com/bihua-university/alisten/internal/nacos"
 	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"
 	"github.com/google/uuid"
@@ -367,5 +368,37 @@ func TestPlaybackReservationAndClose(t *testing.T) {
 	items := h.queue.Items()
 	if current.ID != "current" || len(items) != 1 || items[0].ID != "last" {
 		t.Fatalf("late load changed a closed room: current=%s queue=%+v", current.ID, items)
+	}
+}
+
+func TestMusichubDiscoveryNamespace(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("namespaceId") == "canary" {
+			_, _ = w.Write([]byte(`{"hosts":[{"ip":"127.0.0.1","port":9091,"healthy":true,"enabled":true}]}`))
+		} else if r.URL.Query().Get("namespaceId") == "" {
+			_, _ = w.Write([]byte(`{"hosts":[{"ip":"127.0.0.1","port":9090,"healthy":true,"enabled":true}]}`))
+		} else {
+			_, _ = w.Write([]byte(`{"hosts":[]}`))
+		}
+	}))
+	defer server.Close()
+	t.Setenv("NACOS_SERVER_ADDR", server.URL+"?namespace=canary")
+	if err := nacos.Init("room-service"); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ namespace, address string }{
+		{"", "127.0.0.1:9091"}, {"public", "127.0.0.1:9090"}, {" canary ", "127.0.0.1:9091"},
+	} {
+		t.Setenv("MUSICHUB_NACOS_NAMESPACE", test.namespace)
+		for _, discover := range []func(context.Context) (string, error){discoverMusichub, discoverMusichubOnce} {
+			address, err := discover(context.Background())
+			if err != nil || address != test.address {
+				t.Fatalf("namespace %q: address=%q err=%v", test.namespace, address, err)
+			}
+		}
+	}
+	t.Setenv("MUSICHUB_NACOS_NAMESPACE", "missing")
+	if _, err := discoverMusichubOnce(context.Background()); err == nil {
+		t.Fatal("missing namespace fell back")
 	}
 }

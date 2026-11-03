@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -22,7 +23,7 @@ pub struct NacosClient {
     password: String,
     http: reqwest::Client,
     token: AsyncMutex<Option<Token>>,
-    cache: Mutex<Option<CachedInstance>>,
+    cache: Mutex<HashMap<(String, String), CachedInstance>>,
     refresh: AsyncMutex<()>,
 }
 
@@ -110,32 +111,48 @@ impl NacosClient {
                 .timeout(Duration::from_secs(15))
                 .build()?,
             token: AsyncMutex::new(None),
-            cache: Mutex::new(None),
+            cache: Mutex::new(HashMap::new()),
             refresh: AsyncMutex::new(()),
         })
     }
 
-    pub async fn discover(&self, service_name: &str) -> Result<String> {
-        if let Some(address) = self.cached(true) {
+    pub fn namespace<'a>(&'a self, namespace: Option<&'a str>) -> &'a str {
+        namespace
+            .or(self.namespace.as_deref())
+            .filter(|value| !value.is_empty() && *value != "public")
+            .unwrap_or("")
+    }
+
+    pub async fn discover(&self, service_name: &str, namespace: Option<&str>) -> Result<String> {
+        let namespace = self.namespace(namespace);
+        let key = (namespace.to_owned(), service_name.to_owned());
+        if let Some(address) = self.cached(&key, true) {
             return Ok(address);
         }
         let _refresh = self.refresh.lock().await;
-        if let Some(address) = self.cached(true) {
+        if let Some(address) = self.cached(&key, true) {
             return Ok(address);
         }
-        match self.fetch(service_name).await {
-            Ok(address) => {
+        match self.fetch(service_name, namespace).await {
+            Ok(Some(address)) => {
                 let now = Instant::now();
-                *self.lock_cache() = Some(CachedInstance {
-                    address: address.clone(),
-                    fresh_until: now + DISCOVERY_TTL,
-                    stale_until: now + STALE_TTL,
-                });
+                self.lock_cache().insert(
+                    key.clone(),
+                    CachedInstance {
+                        address: address.clone(),
+                        fresh_until: now + DISCOVERY_TTL,
+                        stale_until: now + STALE_TTL,
+                    },
+                );
                 Ok(address)
             }
+            Ok(None) => {
+                self.lock_cache().remove(&key);
+                bail!("Nacos service {service_name} in namespace {namespace:?} has no healthy instances");
+            }
             Err(error) => {
-                if let Some(address) = self.cached(false) {
-                    warn!("Nacos discovery failed; using stale room-service {address}: {error:#}");
+                if let Some(address) = self.cached(&key, false) {
+                    warn!("Nacos discovery failed; using stale {service_name} namespace={namespace:?} {address}: {error:#}");
                     return Ok(address);
                 }
                 Err(error)
@@ -144,12 +161,12 @@ impl NacosClient {
     }
 
     pub fn invalidate(&self) {
-        *self.lock_cache() = None;
+        self.lock_cache().clear();
     }
 
-    fn cached(&self, fresh_only: bool) -> Option<String> {
+    fn cached(&self, key: &(String, String), fresh_only: bool) -> Option<String> {
         let cache = self.lock_cache();
-        let cached = cache.as_ref()?;
+        let cached = cache.get(key)?;
         let now = Instant::now();
         if now < cached.fresh_until || (!fresh_only && now < cached.stale_until) {
             Some(cached.address.clone())
@@ -158,24 +175,24 @@ impl NacosClient {
         }
     }
 
-    fn lock_cache(&self) -> std::sync::MutexGuard<'_, Option<CachedInstance>> {
+    fn lock_cache(&self) -> std::sync::MutexGuard<'_, HashMap<(String, String), CachedInstance>> {
         self.cache
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    async fn fetch(&self, service_name: &str) -> Result<String> {
+    async fn fetch(&self, service_name: &str, namespace: &str) -> Result<Option<String>> {
         let query = vec![
             ("serviceName", service_name),
             ("groupName", DEFAULT_GROUP),
             ("healthyOnly", "true"),
         ];
         let body = self
-            .request(Method::GET, "/v1/ns/instance/list", &query, None)
+            .request(Method::GET, "/v1/ns/instance/list", &query, None, namespace)
             .await?;
         let instances: InstanceList =
             serde_json::from_slice(&body).context("decode Nacos instances")?;
-        instances
+        Ok(instances
             .hosts
             .into_iter()
             .find(|instance| {
@@ -187,8 +204,7 @@ impl NacosClient {
                 } else {
                     format!("{}:{}", instance.ip, instance.port)
                 }
-            })
-            .ok_or_else(|| anyhow!("Nacos service {service_name} has no healthy instances"))
+            }))
     }
 
     async fn request(
@@ -197,10 +213,11 @@ impl NacosClient {
         path: &str,
         query: &[(&str, &str)],
         form: Option<&[(&str, &str)]>,
+        namespace: &str,
     ) -> Result<Vec<u8>> {
         let token = self.request_token(false).await?;
         let response = self
-            .send(&method, path, query, form, token.as_deref())
+            .send(&method, path, query, form, token.as_deref(), namespace)
             .await?;
         let response = if self.username.is_some()
             && matches!(
@@ -208,7 +225,7 @@ impl NacosClient {
                 StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
             ) {
             let token = self.request_token(true).await?;
-            self.send(&method, path, query, form, token.as_deref())
+            self.send(&method, path, query, form, token.as_deref(), namespace)
                 .await?
         } else {
             response
@@ -223,6 +240,7 @@ impl NacosClient {
         query: &[(&str, &str)],
         form: Option<&[(&str, &str)]>,
         token: Option<&str>,
+        namespace: &str,
     ) -> Result<Response> {
         let mut url = self.base_url.clone();
         let full_path = format!("{}{}", self.base_url.path().trim_end_matches('/'), path);
@@ -232,10 +250,8 @@ impl NacosClient {
             for (key, value) in query {
                 pairs.append_pair(key, value);
             }
-            if path.starts_with("/v1/ns/") {
-                if let Some(namespace) = &self.namespace {
-                    pairs.append_pair("namespaceId", namespace);
-                }
+            if path.starts_with("/v1/ns/") && !namespace.is_empty() {
+                pairs.append_pair("namespaceId", namespace);
             }
             if let Some(token) = token {
                 pairs.append_pair("accessToken", token);
@@ -263,7 +279,7 @@ impl NacosClient {
         let username = self.username.as_deref().unwrap_or_default();
         let form = [("username", username), ("password", self.password.as_str())];
         let response = self
-            .send(&Method::POST, "/v1/auth/login", &[], Some(&form), None)
+            .send(&Method::POST, "/v1/auth/login", &[], Some(&form), None, "")
             .await?;
         let body = read_response(response).await?;
         let reply: LoginReply =
@@ -330,6 +346,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn isolates_namespaces_services_and_empty_results() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_requests = Arc::clone(&requests);
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buffer = [0; 4096];
+                let size = stream.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..size]);
+                server_requests.fetch_add(1, Ordering::SeqCst);
+                let port = if request.contains("namespaceId=canary") {
+                    8082
+                } else if request.contains("serviceName=musichub") {
+                    9090
+                } else {
+                    8081
+                };
+                let body = if request.contains("namespaceId=empty") {
+                    r#"{"hosts":[]}"#.to_owned()
+                } else {
+                    format!(
+                        r#"{{"hosts":[{{"ip":"127.0.0.1","port":{port},"healthy":true,"enabled":true}}]}}"#
+                    )
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let client =
+            NacosClient::new(&format!("http://{address}/nacos?namespace=production")).unwrap();
+        assert_eq!(
+            client.discover("room-service", None).await.unwrap(),
+            "127.0.0.1:8081"
+        );
+        assert_eq!(
+            client
+                .discover("room-service", Some("canary"))
+                .await
+                .unwrap(),
+            "127.0.0.1:8082"
+        );
+        assert_eq!(
+            client.discover("musichub", None).await.unwrap(),
+            "127.0.0.1:9090"
+        );
+        assert_eq!(
+            client.discover("room-service", None).await.unwrap(),
+            "127.0.0.1:8081"
+        );
+        assert_eq!(
+            client
+                .discover("room-service", Some("canary"))
+                .await
+                .unwrap(),
+            "127.0.0.1:8082"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+        // An authoritative empty list must evict even a still-usable stale entry.
+        client.lock_cache().insert(
+            ("empty".to_owned(), "room-service".to_owned()),
+            CachedInstance {
+                address: "127.0.0.1:9999".to_owned(),
+                fresh_until: Instant::now(),
+                stale_until: Instant::now() + STALE_TTL,
+            },
+        );
+        assert!(client
+            .discover("room-service", Some("empty"))
+            .await
+            .is_err());
+        assert_eq!(
+            client.discover("room-service", None).await.unwrap(),
+            "127.0.0.1:8081"
+        );
+        client.invalidate();
+        assert!(client.lock_cache().is_empty());
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn authenticates_discovers_and_invalidates_cache() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -371,17 +472,17 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            client.discover("room-service").await.unwrap(),
+            client.discover("room-service", None).await.unwrap(),
             "127.0.0.1:8081"
         );
         assert_eq!(
-            client.discover("room-service").await.unwrap(),
+            client.discover("room-service", None).await.unwrap(),
             "127.0.0.1:8081"
         );
         assert_eq!(requests.lock().unwrap().len(), 4);
         client.invalidate();
         assert_eq!(
-            client.discover("room-service").await.unwrap(),
+            client.discover("room-service", None).await.unwrap(),
             "127.0.0.1:8081"
         );
         assert_eq!(requests.lock().unwrap().len(), 5);
