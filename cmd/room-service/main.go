@@ -4,25 +4,27 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
-	"github.com/bihua-university/alisten/cmd/alisten/internal/config"
-	"github.com/bihua-university/alisten/cmd/alisten/internal/rpc/musichub"
+	"github.com/bihua-university/alisten/cmd/room-service/internal/config"
+	"github.com/bihua-university/alisten/cmd/room-service/internal/rpc/musichub"
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/nacos"
 	"github.com/bihua-university/alisten/protocol"
 
-	"github.com/caddyserver/certmagic"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
 )
@@ -34,9 +36,6 @@ var upgrader = websocket.Upgrader{
 var (
 	musicClient  *musichub.Client
 	debugEnabled bool
-	httpPort     string
-	adminToken   string
-	publicAddr   string
 )
 
 func discoverMusichub(ctx context.Context) (string, error) {
@@ -56,18 +55,17 @@ func discoverMusichub(ctx context.Context) (string, error) {
 }
 
 func main() {
-	if err := nacos.Init("alisten"); err != nil {
+	if err := nacos.Init("room-service"); err != nil {
 		logx.Fatal("initialize Nacos:", err)
 	}
 	debugEnabled = debugMode()
-	httpPort = port("8080")
-	adminToken = strings.TrimSpace(os.Getenv("TOKEN"))
-	publicAddr = strings.TrimSpace(os.Getenv("ADDR"))
 	logx.SetDebug(debugEnabled)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	cfg := config.ServerConfig.Get()
-	discoveryCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	discoveryCtx, cancelDiscovery := context.WithTimeout(ctx, 30*time.Second)
 	address, err := discoverMusichub(discoveryCtx)
-	cancel()
+	cancelDiscovery()
 	if err != nil {
 		logx.Fatal("discover musichub:", err)
 	}
@@ -75,17 +73,41 @@ func main() {
 		return nacos.Discover(ctx, "musichub")
 	}, 0)
 	defer musicClient.Close()
-	handler := newHandler()
 	for _, house := range cfg.Persist {
 		createHouse(house.ID, house.Name, house.Desc, house.Password, true)
 	}
-	if debugEnabled {
-		logx.Fatal(http.ListenAndServe(":"+httpPort, handler))
-	} else {
-		if publicAddr == "" {
-			logx.Fatal("ADDR is required when DEBUG is false")
+
+	listener, err := net.Listen("tcp", ":"+port("8081"))
+	if err != nil {
+		logx.Fatal("listen room-service:", err)
+	}
+	if err := nacos.Register(ctx, "", listener.Addr().String()); err != nil {
+		logx.Fatal("register room-service:", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := nacos.Deregister(ctx, "", listener.Addr().String()); err != nil {
+			logx.Error("deregister room-service:", err)
 		}
-		certmagic.HTTPS([]string{publicAddr}, handler)
+	}()
+
+	server := &http.Server{Handler: newHandler(), ReadHeaderTimeout: 10 * time.Second}
+	serveErrors := make(chan error, 1)
+	go func() { serveErrors <- server.Serve(listener) }()
+	logx.Info("room-service HTTP ", listener.Addr())
+	select {
+	case <-ctx.Done():
+	case err := <-serveErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logx.Error("room-service serve:", err)
+		}
+		stop()
+	}
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logx.Error("room-service shutdown:", err)
 	}
 }
 
@@ -124,8 +146,6 @@ func newHandler() http.Handler {
 	mux.HandleFunc("POST /music/searchsonglist", wrapWebsocket(searchList))
 	mux.HandleFunc("POST /music/playmode", wrapWebsocket(playMode))
 
-	mux.HandleFunc("GET /config/cookie", getCookieHTTP)
-	mux.HandleFunc("POST /config/cookie", setCookieHTTP)
 	mux.HandleFunc("/server", serveWebsocket)
 	return corsMiddleware(logMiddleware(mux))
 }
@@ -144,7 +164,11 @@ func serveWebsocket(w http.ResponseWriter, r *http.Request) {
 	wc.SetReadLimit(64 * 1024)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	ip := maskIP(r.RemoteAddr)
+	remoteAddr := r.RemoteAddr
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
+		remoteAddr = forwarded
+	}
+	ip := maskIP(remoteAddr)
 	conn := &Connection{
 		conn: wc, ip: ip, user: auth.User{Name: "游客(" + ip + ")"},
 		send: make(chan []byte, connectionSendBuffer), done: make(chan struct{}),

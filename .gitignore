@@ -3,6 +3,13 @@ config.json
 /musichub.exe
 /alisten
 /alisten.exe
+/room-service
+/room-service.exe
+/gateway-bin
+/gateway-bin.exe
+/gateway/target
+/.tmp
+/certs
 dist
 build.sh
 test-config.json

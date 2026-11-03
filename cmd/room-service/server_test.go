@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bihua-university/alisten/cmd/alisten/internal/config"
+	"github.com/bihua-university/alisten/cmd/room-service/internal/config"
 	"github.com/bihua-university/alisten/internal/music"
 	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"

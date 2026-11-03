@@ -73,7 +73,7 @@ func TestDiscoverRequiresHealthyInstance(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("NACOS_SERVER_ADDR", server.URL)
-	if err := Init("alisten"); err != nil {
+	if err := Init("room-service"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Discover(context.Background(), "musichub"); err == nil {

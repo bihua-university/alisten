@@ -37,6 +37,6 @@ POST /music/playmode
 比较时忽略 JSON 对象字段顺序，正数服务器时间戳归一为 `1`；零值、客户端时间、时长及其他字段保持原值。修改接口行为时，审核并更新相应预期区块。
 
 ```bash
-go test ./cmd/alisten -run Golden
-go test ./cmd/alisten -run TestWebsocketGolden/queue
+go test ./cmd/room-service -run Golden
+go test ./cmd/room-service -run TestWebsocketGolden/queue
 ```

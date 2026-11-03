@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bihua-university/alisten/cmd/alisten/internal/musicqueue"
+	"github.com/bihua-university/alisten/cmd/room-service/internal/musicqueue"
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/music"
 	pb "github.com/bihua-university/alisten/internal/proto/musichub"

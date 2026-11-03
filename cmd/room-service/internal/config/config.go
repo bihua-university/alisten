@@ -17,4 +17,4 @@ type PersistHouse struct {
 	Password string `json:"password"`
 }
 
-var ServerConfig = naconfig.Json[File](os.Getenv("ALISTEN_CONFIG"))
+var ServerConfig = naconfig.Json[File](os.Getenv("ROOM_SERVICE_CONFIG"))

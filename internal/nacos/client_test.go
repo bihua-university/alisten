@@ -22,7 +22,7 @@ func TestUninitializedPanics(t *testing.T) {
 			t.Fatal("uninitialized GetConfig did not panic")
 		}
 	}()
-	_, _ = GetConfig(context.Background(), &pb.ConfigRequest{DataId: "alisten.json"})
+	_, _ = GetConfig(context.Background(), &pb.ConfigRequest{DataId: "room-service.json"})
 }
 
 func TestClientConfigAPI(t *testing.T) {
@@ -37,7 +37,7 @@ func TestClientConfigAPI(t *testing.T) {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			if got := r.URL.Query().Get("dataId"); got != "alisten.json" {
+			if got := r.URL.Query().Get("dataId"); got != "room-service.json" {
 				t.Errorf("dataId = %q", got)
 			}
 			if got := r.URL.Query().Get("group"); got != defaultGroup {
@@ -48,7 +48,7 @@ func TestClientConfigAPI(t *testing.T) {
 			if err := r.ParseForm(); err != nil {
 				t.Errorf("ParseForm: %v", err)
 			}
-			if got := r.Form.Get("dataId"); got != "alisten.json" {
+			if got := r.Form.Get("dataId"); got != "room-service.json" {
 				t.Errorf("publish dataId = %q", got)
 			}
 			if got := r.Form.Get("group"); got != defaultGroup {
@@ -68,14 +68,14 @@ func TestClientConfigAPI(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("NACOS_SERVER_ADDR", server.URL+"?namespace=development")
-	if err := Init("alisten"); err != nil {
+	if err := Init("room-service"); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := GetConfig(context.Background(), &pb.ConfigRequest{DataId: "alisten.json"})
+	reply, err := GetConfig(context.Background(), &pb.ConfigRequest{DataId: "room-service.json"})
 	if err != nil || reply.Content != `{"addr":":8080"}` {
 		t.Fatalf("GetConfig = %+v, %v", reply, err)
 	}
-	_, err = PublishConfig(context.Background(), &pb.PublishConfigRequest{DataId: "alisten.json", Content: `{"debug":true}`})
+	_, err = PublishConfig(context.Background(), &pb.PublishConfigRequest{DataId: "room-service.json", Content: `{"debug":true}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,11 +111,11 @@ func TestClientAuthenticationAndRetry(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("NACOS_SERVER_ADDR", strings.Replace(server.URL, "://", "://user:pass@", 1))
-	if err := Init("alisten"); err != nil {
+	if err := Init("room-service"); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
-		reply, err := GetConfig(context.Background(), &pb.ConfigRequest{DataId: "alisten.json"})
+		reply, err := GetConfig(context.Background(), &pb.ConfigRequest{DataId: "room-service.json"})
 		if err != nil || reply.Content != "config" {
 			t.Fatalf("GetConfig = %+v, %v", reply, err)
 		}
@@ -127,15 +127,15 @@ func TestClientAuthenticationAndRetry(t *testing.T) {
 
 func TestClientErrorsAndCancellation(t *testing.T) {
 	t.Setenv("NACOS_SERVER_ADDR", "")
-	if err := Init("alisten"); err == nil {
+	if err := Init("room-service"); err == nil {
 		t.Fatal("empty server address accepted")
 	}
 	t.Setenv("NACOS_SERVER_ADDR", "ftp://localhost")
-	if err := Init("alisten"); err == nil {
+	if err := Init("room-service"); err == nil {
 		t.Fatal("invalid scheme accepted")
 	}
 	t.Setenv("NACOS_SERVER_ADDR", "localhost:8848")
-	if err := Init("alisten"); err != nil {
+	if err := Init("room-service"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := GetConfig(context.Background(), &pb.ConfigRequest{}); err == nil {
@@ -151,18 +151,18 @@ func TestClientErrorsAndCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("NACOS_SERVER_ADDR", server.URL)
-	if err := Init("alisten"); err != nil {
+	if err := Init("room-service"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := GetConfig(context.Background(), &pb.ConfigRequest{DataId: "alisten.json"}); err == nil || !strings.Contains(err.Error(), "503") {
+	if _, err := GetConfig(context.Background(), &pb.ConfigRequest{DataId: "room-service.json"}); err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("GetConfig error = %v", err)
 	}
-	if _, err := PublishConfig(context.Background(), &pb.PublishConfigRequest{DataId: "alisten.json"}); err == nil || !strings.Contains(err.Error(), "rejected") {
+	if _, err := PublishConfig(context.Background(), &pb.PublishConfigRequest{DataId: "room-service.json"}); err == nil || !strings.Contains(err.Error(), "rejected") {
 		t.Fatalf("PublishConfig error = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := GetConfig(ctx, &pb.ConfigRequest{DataId: "alisten.json"}); !errors.Is(err, context.Canceled) {
+	if _, err := GetConfig(ctx, &pb.ConfigRequest{DataId: "room-service.json"}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error = %v", err)
 	}
 }

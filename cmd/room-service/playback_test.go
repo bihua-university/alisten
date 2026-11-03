@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bihua-university/alisten/cmd/alisten/internal/musicqueue"
+	"github.com/bihua-university/alisten/cmd/room-service/internal/musicqueue"
 	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"
 	"github.com/tidwall/gjson"
