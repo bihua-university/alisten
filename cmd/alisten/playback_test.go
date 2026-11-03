@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/bihua-university/alisten/cmd/alisten/internal/musicqueue"
-	pb "github.com/bihua-university/alisten/internal/proto/musicd"
+	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"
 	"github.com/tidwall/gjson"
 )

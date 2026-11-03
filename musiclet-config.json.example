@@ -1,6 +1,0 @@
-{
-    "server_url": "https://your-server-url",
-    "token": "your-auth-token-here",
-    "qiniu_ak": "your-qiniu-access-key",
-    "qiniu_sk": "your-qiniu-secret-key"
-}

@@ -1,0 +1,142 @@
+// Package netease 是网易云音乐 API 的低层客户端。
+package netease
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/tidwall/gjson"
+
+	"github.com/bihua-university/alisten/cmd/musichub/internal/utils"
+	"github.com/bihua-university/alisten/internal/music"
+	pb "github.com/bihua-university/alisten/internal/proto/musichub"
+)
+
+const (
+	referer        = "http://music.163.com/"
+	searchAPI      = "http://music.163.com/api/linux/forward"
+	downloadAPI    = "http://music.163.com/weapi/song/enhance/player/url"
+	downloadEAPI   = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1"
+	detailAPI      = "https://music.163.com/weapi/v3/song/detail"
+	playlistAPI    = "https://music.163.com/weapi/v3/playlist/detail"
+	similarSongAPI = "https://music.163.com/weapi/discovery/simiSong"
+)
+
+// Client 是网易云音乐 API 客户端
+type Client struct {
+	hc     utils.Client
+	cache  *expirable.LRU[string, []byte]
+	cookie atomic.Value // string，支持运行时更新
+}
+
+// New 创建一个新的网易云客户端
+func New(cookie string) *Client {
+	c := &Client{
+		hc: utils.Client{
+			Header: http.Header{
+				"Referer":      {referer},
+				"Content-Type": {"application/x-www-form-urlencoded"},
+				"User-Agent":   {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"},
+			},
+			RandomIP: true,
+		},
+		cache: expirable.NewLRU[string, []byte](512, nil, 30*time.Minute),
+	}
+	c.cookie.Store(cookie)
+	return c
+}
+
+// SetCookie 更新请求携带的 Cookie，立即生效。
+func (c *Client) SetCookie(cookie string) {
+	c.cookie.Store(cookie)
+	// Cookie 变化后旧缓存可能失效，直接清空
+	c.cache.Purge()
+}
+
+// header 返回携带当前 Cookie 的请求头
+func (c *Client) header() http.Header {
+	return http.Header{"Cookie": {c.cookie.Load().(string)}}
+}
+
+func cacheKey(apiURL string, reqData map[string]any) string {
+	b, _ := json.Marshal(reqData)
+	return apiURL + "|" + string(b)
+}
+
+// post 发送表单 POST 请求并返回响应体，可选择是否使用缓存
+func (c *Client) post(apiURL string, form url.Values, useCache bool, cacheID string) ([]byte, error) {
+	if useCache {
+		if v, ok := c.cache.Get(cacheID); ok {
+			return v, nil
+		}
+	}
+	body, err := c.hc.Post(apiURL, strings.NewReader(form.Encode()), c.header())
+	if err != nil {
+		return nil, err
+	}
+	if useCache {
+		c.cache.Add(cacheID, body)
+	}
+	return body, nil
+}
+
+// request 发送 WeAPI 加密请求
+func (c *Client) request(apiURL string, reqData map[string]any, useCache bool) ([]byte, error) {
+	reqJSON, _ := json.Marshal(reqData)
+	params, encSecKey := EncryptWeApi(string(reqJSON))
+
+	form := url.Values{}
+	form.Set("params", params)
+	form.Set("encSecKey", encSecKey)
+
+	return c.post(apiURL, form, useCache, cacheKey(apiURL, reqData))
+}
+
+// requestLinux 发送 Linux API 加密请求
+func (c *Client) requestLinux(apiURL string, eparams map[string]any, useCache bool) ([]byte, error) {
+	eparamsJSON, _ := json.Marshal(eparams)
+
+	form := url.Values{}
+	form.Set("eparams", EncryptLinux(string(eparamsJSON)))
+
+	return c.post(apiURL, form, useCache, cacheKey(apiURL, eparams))
+}
+
+// checkCode 校验响应中的业务错误码
+func checkCode(result gjson.Result) error {
+	if code := result.Get("code").Int(); code != 200 {
+		return fmt.Errorf("netease api error code: %d", code)
+	}
+	return nil
+}
+
+// parseMusic 从单曲数据解析 Music
+func parseMusic(item gjson.Result) *pb.Music {
+	return &pb.Music{
+		Id:       item.Get("id").String(),
+		Name:     item.Get("name").String(),
+		Artist:   parseArtists(item),
+		Album:    item.Get("al.name").String(),
+		Duration: item.Get("dt").Int(),
+		Cover:    item.Get("al.picUrl").String(),
+		Source:   int32(music.NetEase),
+	}
+}
+
+// parseArtists 拼接歌手名称
+func parseArtists(item gjson.Result) string {
+	var names []string
+	item.Get("ar").ForEach(func(_, ar gjson.Result) bool {
+		if name := ar.Get("name").String(); name != "" {
+			names = append(names, name)
+		}
+		return true
+	})
+	return strings.Join(names, ", ")
+}

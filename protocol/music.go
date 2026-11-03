@@ -3,7 +3,7 @@ package protocol
 import (
 	"github.com/bihua-university/alisten/internal/auth"
 	"github.com/bihua-university/alisten/internal/music"
-	pb "github.com/bihua-university/alisten/internal/proto/musicd"
+	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 )
 
 func UserData(u auth.User) User { return User{Name: u.Name, EmailHash: u.Email} }

@@ -10,10 +10,9 @@ import (
 
 	"github.com/bihua-university/alisten/cmd/alisten/internal/musicqueue"
 	"github.com/bihua-university/alisten/internal/auth"
-	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/internal/music"
-	pb "github.com/bihua-university/alisten/internal/proto/musicd"
+	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/google/uuid"
@@ -102,12 +101,12 @@ func addHouseHTTP(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, base.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	id := uuid.New().String()
 	createHouse(id, request.Name, request.Desc, request.Password, false)
-	writeJSON(w, http.StatusOK, base.H{"houseId": id})
+	writeJSON(w, http.StatusOK, map[string]any{"houseId": id})
 }
 
 func createHouse(id, name, desc, password string, persist bool) {
@@ -130,19 +129,19 @@ func enterHouseHTTP(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, base.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	h := GetHouse(request.HouseID)
 	if h == nil {
-		writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "房间不存在"})
 		return
 	}
 	if h.Password != request.Password {
-		writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "密码错误"})
 		return
 	}
-	writeJSON(w, http.StatusOK, base.H{"houseId": request.HouseID})
+	writeJSON(w, http.StatusOK, map[string]any{"houseId": request.HouseID})
 }
 
 func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
@@ -157,11 +156,11 @@ func searchHousesHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	housesMu.Unlock()
 
-	response := make([]base.H, 0, len(rooms))
+	response := make([]map[string]any, 0, len(rooms))
 	for _, room := range rooms {
 		h := room.house
 		h.mu.Lock()
-		response = append(response, base.H{
+		response = append(response, map[string]any{
 			"id":         room.id,
 			"name":       h.Name,
 			"desc":       h.Desc,

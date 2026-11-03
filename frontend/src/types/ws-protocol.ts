@@ -146,7 +146,7 @@ export interface SongRef {
   source: Source
 }
 
-export type Source = "netease" | "qq" | "kuwo" | "url_common"
+export type Source = "netease" | "qq" | "kuwo"
 
 export interface User {
   emailHash: string

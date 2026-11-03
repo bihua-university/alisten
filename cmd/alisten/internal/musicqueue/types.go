@@ -2,7 +2,7 @@ package musicqueue
 
 import (
 	"github.com/bihua-university/alisten/internal/auth"
-	pb "github.com/bihua-university/alisten/internal/proto/musicd"
+	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"
 )
 

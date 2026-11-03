@@ -9,8 +9,7 @@
       "enum": [
         "netease",
         "qq",
-        "kuwo",
-        "url_common"
+        "kuwo"
       ]
     },
     "PlayMode": {

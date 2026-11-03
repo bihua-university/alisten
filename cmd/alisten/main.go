@@ -8,17 +8,18 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
+	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/bihua-university/alisten/cmd/alisten/internal/rpc/musicd"
+	"github.com/bihua-university/alisten/cmd/alisten/internal/config"
+	"github.com/bihua-university/alisten/cmd/alisten/internal/rpc/musichub"
 	"github.com/bihua-university/alisten/internal/auth"
-	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
+	"github.com/bihua-university/alisten/internal/nacos"
 	"github.com/bihua-university/alisten/protocol"
 
 	"github.com/caddyserver/certmagic"
@@ -30,35 +31,81 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-var musicClient *musicd.Client
+var (
+	musicClient  *musichub.Client
+	debugEnabled bool
+	httpPort     string
+	adminToken   string
+	publicAddr   string
+)
 
-func musicHTTPURL() string {
-	if base.Config.MusicRPC.HTTPURL != "" {
-		return base.Config.MusicRPC.HTTPURL
+func discoverMusichub(ctx context.Context) (string, error) {
+	for {
+		address, err := nacos.Discover(ctx, "musichub")
+		if err == nil {
+			return address, nil
+		}
+		timer := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
 	}
-	return "http://127.0.0.1:8081"
 }
 
 func main() {
-	if err := base.LoadConfig("config.json"); err != nil {
-		logx.Fatal("load config:", err)
+	if err := nacos.Init("alisten"); err != nil {
+		logx.Fatal("initialize Nacos:", err)
 	}
-	logx.SetDebug(base.Config.Debug)
-	address := base.Config.MusicRPC.Address
-	if address == "" {
-		address = "127.0.0.1:9090"
+	debugEnabled = debugMode()
+	httpPort = port("8080")
+	adminToken = strings.TrimSpace(os.Getenv("TOKEN"))
+	publicAddr = strings.TrimSpace(os.Getenv("ADDR"))
+	logx.SetDebug(debugEnabled)
+	cfg := config.ServerConfig.Get()
+	discoveryCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	address, err := discoverMusichub(discoveryCtx)
+	cancel()
+	if err != nil {
+		logx.Fatal("discover musichub:", err)
 	}
-	musicClient = musicd.NewClient(address, time.Duration(base.Config.MusicRPC.TimeoutSeconds)*time.Second)
+	musicClient = musichub.NewDiscoveryClient(address, func(ctx context.Context) (string, error) {
+		return nacos.Discover(ctx, "musichub")
+	}, 0)
 	defer musicClient.Close()
 	handler := newHandler()
-	for _, house := range base.Config.Persist {
+	for _, house := range cfg.Persist {
 		createHouse(house.ID, house.Name, house.Desc, house.Password, true)
 	}
-	if base.Config.Debug {
-		logx.Fatal(http.ListenAndServe(":8080", handler))
+	if debugEnabled {
+		logx.Fatal(http.ListenAndServe(":"+httpPort, handler))
 	} else {
-		certmagic.HTTPS([]string{base.Config.Addr}, handler)
+		if publicAddr == "" {
+			logx.Fatal("ADDR is required when DEBUG is false")
+		}
+		certmagic.HTTPS([]string{publicAddr}, handler)
 	}
+}
+
+func port(fallback string) string {
+	if value := strings.TrimSpace(os.Getenv("PORT")); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func debugMode() bool {
+	value := strings.TrimSpace(os.Getenv("DEBUG"))
+	if value == "" {
+		return false
+	}
+	debug, err := strconv.ParseBool(value)
+	if err != nil {
+		logx.Fatal("parse DEBUG:", err)
+	}
+	return debug
 }
 
 func newHandler() http.Handler {
@@ -77,13 +124,6 @@ func newHandler() http.Handler {
 	mux.HandleFunc("POST /music/searchsonglist", wrapWebsocket(searchList))
 	mux.HandleFunc("POST /music/playmode", wrapWebsocket(playMode))
 
-	upstream, err := url.Parse(musicHTTPURL())
-	if err != nil || upstream.Host == "" || (upstream.Scheme != "http" && upstream.Scheme != "https") {
-		panic("invalid music.rpc.http_url")
-	}
-	proxy := httputil.NewSingleHostReverseProxy(upstream)
-	mux.Handle("GET /tasks/poll", proxy)
-	mux.Handle("POST /tasks/result", proxy)
 	mux.HandleFunc("GET /config/cookie", getCookieHTTP)
 	mux.HandleFunc("POST /config/cookie", setCookieHTTP)
 	mux.HandleFunc("/server", serveWebsocket)
@@ -263,11 +303,11 @@ func wrapWebsocket(fn func(*Context)) http.HandlerFunc {
 
 		house := GetHouse(msg.Get("houseId").String())
 		if house == nil {
-			writeJSON(w, http.StatusNotFound, base.H{"error": "房间不存在"})
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "房间不存在"})
 			return
 		}
 		if house.Password != msg.Get("password").String() {
-			writeJSON(w, http.StatusUnauthorized, base.H{"error": "密码错误"})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "密码错误"})
 			return
 		}
 
@@ -278,13 +318,5 @@ func wrapWebsocket(fn func(*Context)) http.HandlerFunc {
 			data:  msg,
 		}
 		fn(ctx)
-	}
-}
-
-func localhost() string {
-	if base.Config.Debug {
-		return "http://localhost:8080"
-	} else {
-		return "https://" + base.Config.Addr
 	}
 }

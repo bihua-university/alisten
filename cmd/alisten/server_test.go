@@ -13,8 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bihua-university/alisten/cmd/alisten/internal/config"
 	"github.com/bihua-university/alisten/internal/music"
-	pb "github.com/bihua-university/alisten/internal/proto/musicd"
+	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -83,6 +84,7 @@ func testHouse(t *testing.T, configure func(*House)) (*House, string) {
 
 func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	config.ServerConfig.Update(config.File{})
 	server := httptest.NewServer(newHandler())
 	t.Cleanup(server.Close)
 	return server

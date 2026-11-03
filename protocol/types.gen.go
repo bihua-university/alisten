@@ -167,10 +167,9 @@ type SongRef struct {
 type Source string
 
 const (
-	SourceNetease   Source = "netease"
-	SourceQq        Source = "qq"
-	SourceKuwo      Source = "kuwo"
-	SourceUrlCommon Source = "url_common"
+	SourceNetease Source = "netease"
+	SourceQq      Source = "qq"
+	SourceKuwo    Source = "kuwo"
 )
 
 type User struct {

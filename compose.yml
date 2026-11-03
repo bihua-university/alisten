@@ -1,50 +1,40 @@
 services:
-  # Alisten 服务
   alisten:
     image: ghcr.io/bihua-university/alisten:latest
     build:
       context: .
       dockerfile: docker/alisten.Dockerfile
     container_name: alisten
-    volumes:
-      - ./config.json:/app/config.json:ro
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+      - NACOS_SERVER_ADDR=${NACOS_SERVER_ADDR:?NACOS_SERVER_ADDR is required}
+      - ALISTEN_CONFIG=alisten.json
+      - PORT=8080
+      - DEBUG=${DEBUG:-false}
+      - ADDR=${ADDR:-}
+      - TOKEN=${TOKEN:-}
     ports:
       - "8080:8080"
     networks:
       - alisten-network
     depends_on:
-      alisten-musicd:
-        condition: service_healthy
+      musichub:
+        condition: service_started
 
-  alisten-musicd:
-    image: ghcr.io/bihua-university/alisten-musicd:latest
+  musichub:
+    image: ghcr.io/bihua-university/musichub:latest
     build:
       context: .
-      dockerfile: docker/alisten-musicd.Dockerfile
-    container_name: alisten-musicd
-    volumes:
-      - ./musicd-config.json:/app/musicd-config.json
+      dockerfile: docker/musichub.Dockerfile
+    container_name: musichub
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
-    networks:
-      - alisten-network
-
-  # Musiclet-py 工作服务
-  musiclet-py:
-    image: ghcr.io/bihua-university/alisten-musiclet-py:latest
-    build:
-      context: .
-      dockerfile: docker/musiclet-py.Dockerfile
-    container_name: alisten-musiclet-py
-    volumes:
-      - ./musiclet-config.json:/app/config.json:ro
-    restart: unless-stopped
-    environment:
-      - TZ=Asia/Shanghai
+      - NACOS_SERVER_ADDR=${NACOS_SERVER_ADDR:?NACOS_SERVER_ADDR is required}
+      - MUSICHUB_CONFIG=musichub.json
+      - PORT=9090
+      - DEBUG=${DEBUG:-false}
     networks:
       - alisten-network
 

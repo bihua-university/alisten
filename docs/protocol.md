@@ -48,7 +48,7 @@
 | `queue.get` | `{}` | `QueueData` |
 | `music.recommend` | `{}` | `{ items: Song[], totalSize }` |
 
-`source` 统一为 `netease`、`qq`、`kuwo`、`url_common` 字符串；WebSocket 不接受 `wy` 别名或数字来源。来源枚举不保证每个 provider 支持全部操作；不支持或调用失败时返回 `PROVIDER_ERROR`。
+`source` 统一为 `netease`、`qq`、`kuwo` 字符串；WebSocket 不接受 `wy` 别名或数字来源。来源枚举不保证每个 provider 支持全部操作；不支持或调用失败时返回 `PROVIDER_ERROR`。
 
 搜索分页从 1 开始，`pageSize` 为 1–100。`music.search` 的 `keyword="*<playlistId>"` 返回歌单歌曲；当前为全量返回。聊天内容为 1–500 字符，空白内容拒绝；昵称空白也拒绝。其余约束以 Schema 为准。
 

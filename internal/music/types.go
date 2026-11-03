@@ -1,5 +1,5 @@
 // Package music defines the shared music domain.
-// Platform clients, caches and audio analysis belong to cmd/alisten-musicd/internal.
+// Platform clients, caches and audio analysis belong to cmd/musichub/internal.
 package music
 
 import "fmt"
@@ -8,10 +8,9 @@ import "fmt"
 type Source int32
 
 const (
-	QQ        Source = iota // 保持既有数值，兼容前端协议
-	NetEase                 // 1
-	KuWo                    // 2
-	URLCommon               // 3
+	QQ      Source = iota // 保持既有数值，兼容前端协议
+	NetEase               // 1
+	KuWo                  // 2
 
 	Unknown Source = -1
 )
@@ -26,8 +25,6 @@ func ParseSource(s string) Source {
 		return NetEase
 	case "kuwo":
 		return KuWo
-	case "url_common":
-		return URLCommon
 	default:
 		return Unknown
 	}
@@ -41,8 +38,6 @@ func (s Source) String() string {
 		return "netease"
 	case KuWo:
 		return "kuwo"
-	case URLCommon:
-		return "url_common"
 	default:
 		return "unknown"
 	}

@@ -505,9 +505,7 @@ class WebSocketStore extends Store<WebSocketState> {
       const args = trimmed.substring(2).trim()
       if (!args || !roomStore.state.ultimate)
         return false
-      const isUrl = args.startsWith('http://') || args.startsWith('https://')
-      const source: Source = isUrl ? 'url_common' : 'netease'
-      this.pickByCommand(source, isUrl ? args : undefined, isUrl ? undefined : args)
+      this.pickByCommand('netease', undefined, args)
       return true
     }
     return false

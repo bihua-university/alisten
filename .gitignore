@@ -1,21 +1,17 @@
 config.json
-musiclet-config.json
-musicd-config.json
-/alisten-musicd
-/alisten-musicd.exe
+/musichub
+/musichub.exe
 /alisten
 /alisten.exe
 dist
 build.sh
-/musiclet
-musiclet.exe
 test-config.json
 *.crt
 *.key
 __pycache__
 downloads
 test_*.py
-config
+/config
 *.log
 test_config.json
 

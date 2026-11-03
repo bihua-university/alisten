@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/bihua-university/alisten/internal/auth"
-	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/bihua-university/alisten/protocol"
 
@@ -98,7 +97,7 @@ func (c *Context) Fail(code protocol.ErrorCode, message string) {
 	case protocol.ErrorCodeInternalError:
 		status = http.StatusInternalServerError
 	}
-	writeJSON(c.hw, status, base.H{"error": message})
+	writeJSON(c.hw, status, map[string]any{"error": message})
 }
 
 func (c *Context) Wait(kind uint8) bool {

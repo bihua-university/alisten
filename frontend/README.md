@@ -2,7 +2,7 @@
 
 基于 React 18.3、TypeScript、Vite 和 TailwindCSS 的多人同步听歌应用。界面结合 Apple Music 的音乐层级和 Spotify 的搜索 / 面板布局，支持桌面底部播放器和移动端常驻迷你播放器。
 
-> 本目录是 [alisten](https://github.com/bihua-university/alisten) monorepo 的前端部分，由原 `alisten-ui` 仓库整体导入，不以 submodule 引入。下文命令均在 `frontend/` 目录内执行；后端服务与部署说明见仓库根目录的 README 和 `docs/deploy.md`。
+> 本目录是 [alisten](https://github.com/bihua-university/alisten) monorepo 的前端部分，由原 `alisten-ui` 仓库整体导入，不以 submodule 引入。下文命令均在 `frontend/` 目录内执行；后端服务说明见仓库根目录的 README。
 
 ## 功能
 

@@ -167,7 +167,7 @@ WebSocket 服务器地址通过环境变量 `VITE_WS_URL` 配置。
 统一消息信封 `{ version: 1, kind, type, requestId?, data }`，类型定义在 `src/types/ws-protocol.ts`（复制自服务端 `protocol/ws.gen.ts`，属生成物，改动协议后从服务端同步，不要手改）。
 
 - `kind`：`request` / `response` / `event`；请求与响应通过 `requestId` 关联，事件无 `requestId`
-- 所有业务数据放在 `data`；来源枚举为 `netease` / `qq` / `kuwo` / `url_common`（不接受 `wy`、数字来源或 `db`）；ID 一律字符串；时间与时长均为毫秒整数字段（`Ms` 后缀）
+- 所有业务数据放在 `data`；来源枚举为 `netease` / `qq` / `kuwo`（不接受 `wy`、数字来源或 `db`）；ID 一律字符串；时间与时长均为毫秒整数字段（`Ms` 后缀）
 
 ### 消息路由机制
 

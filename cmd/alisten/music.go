@@ -9,9 +9,8 @@ import (
 
 	"github.com/bihua-university/alisten/cmd/alisten/internal/musicqueue"
 	"github.com/bihua-university/alisten/internal/auth"
-	"github.com/bihua-university/alisten/internal/base"
 	"github.com/bihua-university/alisten/internal/music"
-	pb "github.com/bihua-university/alisten/internal/proto/musicd"
+	pb "github.com/bihua-university/alisten/internal/proto/musichub"
 	"github.com/bihua-university/alisten/protocol"
 )
 
@@ -163,7 +162,7 @@ func searchMusic(c *Context) {
 		result, _ = c.house.backend.Search(c.ctx, option)
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{"list": result.Data, "totalSize": result.Total})
+		c.Send(map[string]any{"list": result.Data, "totalSize": result.Total})
 	} else {
 		c.Send(protocol.SearchData(result.Data, result.Total))
 	}
@@ -186,7 +185,7 @@ func deleteMusic(c *Context) {
 		return
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{"name": removed.Song.Name})
+		c.Send(map[string]any{"name": removed.Song.Name})
 	} else {
 		c.Send(protocol.SongRef{ID: removed.ID, Source: protocol.Source(removed.Source)})
 		c.Chat("删除音乐 " + removed.Song.Name)
@@ -204,7 +203,7 @@ func pickMusic(c *Context) {
 		return
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{"name": result.Name, "artist": result.Artist, "id": result.ID, "source": string(request.Source)})
+		c.Send(map[string]any{"name": result.Name, "artist": result.Artist, "id": result.ID, "source": string(request.Source)})
 	} else {
 		c.Send(result)
 		c.Chat("点歌 " + result.Name)
@@ -221,7 +220,7 @@ func voteSkip(c *Context) {
 		result.Skipped = c.house.push(transition.Track, transition.Generation)
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{"current_votes": result.CurrentVotes, "required_votes": result.RequiredVotes})
+		c.Send(map[string]any{"current_votes": result.CurrentVotes, "required_votes": result.RequiredVotes})
 	} else {
 		c.Send(result)
 		if result.Skipped {
@@ -249,7 +248,7 @@ func goodMusic(c *Context) {
 		return
 	}
 	if c.IsHTTP() {
-		c.Send(base.H{"name": liked.Song.Name, "likes": liked.Likes})
+		c.Send(map[string]any{"name": liked.Song.Name, "likes": liked.Likes})
 	} else {
 		c.Send(protocol.LikeResult{ID: liked.ID, Source: protocol.Source(liked.Source), Likes: int64(liked.Likes)})
 		c.Chat(fmt.Sprintf("%s 点赞%d", liked.Song.Name, liked.Likes))
@@ -266,7 +265,7 @@ func searchList(c *Context) {
 		Page: request.PageIndex, PageSize: request.PageSize,
 	})
 	if c.IsHTTP() {
-		c.Send(base.H{"list": result.Data, "totalSize": result.Total})
+		c.Send(map[string]any{"list": result.Data, "totalSize": result.Total})
 	} else {
 		c.Send(protocol.PlaylistData(result.Data, result.Total, string(request.Source)))
 	}
@@ -281,7 +280,7 @@ func playMode(c *Context) {
 	}
 	settings := c.house.setPlayMode(request.PlayMode)
 	if c.IsHTTP() {
-		c.Send(base.H{"mode": settings.PlayMode})
+		c.Send(map[string]any{"mode": settings.PlayMode})
 	} else {
 		c.Send(settings)
 	}
@@ -297,7 +296,7 @@ func getCurrentMusic(c *Context) {
 		c.Fail(protocol.ErrorCodeNotFound, "当前没有播放音乐")
 		return
 	}
-	message := songToH(&current.Song)
+	message := songToMap(&current.Song)
 	message["pushTime"], message["volumeCoef"], message["user"] = playback.StartedAtMS, playback.VolumeCoefficient, current.User
 	c.Send(message)
 }
@@ -326,7 +325,7 @@ func getPlaylist(c *Context) {
 			Name: order.Song.Name, Artist: artist, Source: order.Source, ID: order.ID, Likes: order.Likes, User: order.User,
 		})
 	}
-	c.Send(base.H{"playlist": list})
+	c.Send(map[string]any{"playlist": list})
 }
 
 func recommendMusic(c *Context) {
@@ -359,12 +358,12 @@ func recommendMusic(c *Context) {
 }
 
 // The flat legacy song representation is used only by the HTTP API.
-func songToH(song *pb.Song) base.H {
+func songToMap(song *pb.Song) map[string]any {
 	if song == nil {
 		return nil
 	}
 	raw, _ := json.Marshal(song)
-	var message base.H
+	var message map[string]any
 	_ = json.Unmarshal(raw, &message)
 	return message
 }
