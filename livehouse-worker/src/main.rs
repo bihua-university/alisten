@@ -52,11 +52,13 @@ async fn main() -> Result<()> {
 
     let listen_address =
         std::env::var("LIVEHOUSE_ADDR").unwrap_or_else(|_| "127.0.0.1:8082".to_owned());
-    store.heartbeat(&node_id, &listen_address).await?;
+    let advertise_address =
+        std::env::var("LIVEHOUSE_ADVERTISE_ADDR").unwrap_or_else(|_| listen_address.clone());
+    store.heartbeat(&node_id, &advertise_address).await?;
 
     let heartbeat_store = store.clone();
     let heartbeat_node = node_id.clone();
-    let heartbeat_address = listen_address.clone();
+    let heartbeat_address = advertise_address;
     let heartbeat = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
