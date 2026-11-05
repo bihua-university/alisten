@@ -2,6 +2,8 @@
 package netease
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,7 +24,7 @@ const (
 	referer        = "http://music.163.com/"
 	searchAPI      = "http://music.163.com/api/linux/forward"
 	downloadAPI    = "http://music.163.com/weapi/song/enhance/player/url"
-	downloadEAPI   = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1"
+	downloadEAPI   = "https://interfacepc.music.163.com/eapi/song/enhance/player/url/v1"
 	detailAPI      = "https://music.163.com/weapi/v3/song/detail"
 	playlistAPI    = "https://music.163.com/weapi/v3/playlist/detail"
 	similarSongAPI = "https://music.163.com/weapi/discovery/simiSong"
@@ -30,13 +32,16 @@ const (
 
 // Client 是网易云音乐 API 客户端
 type Client struct {
-	hc     utils.Client
-	cache  *expirable.LRU[string, []byte]
-	cookie atomic.Value // string，支持运行时更新
+	hc       utils.Client
+	cache    *expirable.LRU[string, []byte]
+	cookie   atomic.Value // string，支持运行时更新
+	deviceID string
 }
 
 // New 创建一个新的网易云客户端
 func New(cookie string) *Client {
+	deviceID := make([]byte, 26)
+	rand.Read(deviceID)
 	c := &Client{
 		hc: utils.Client{
 			Header: http.Header{
@@ -46,7 +51,8 @@ func New(cookie string) *Client {
 			},
 			RandomIP: true,
 		},
-		cache: expirable.NewLRU[string, []byte](512, nil, 30*time.Minute),
+		cache:    expirable.NewLRU[string, []byte](512, nil, 30*time.Minute),
+		deviceID: strings.ToUpper(hex.EncodeToString(deviceID)),
 	}
 	c.cookie.Store(cookie)
 	return c

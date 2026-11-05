@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/bihua-university/alisten/cmd/musichub/internal/utils"
 	"github.com/tidwall/gjson"
 )
 
@@ -17,6 +20,8 @@ type DownloadInfo struct {
 	URL  string
 	Gain *float64
 }
+
+var errEAPITemporaryRejection = errors.New("netease EAPI temporarily rejected the request (-460)")
 
 // GetDownloadURL 获取歌曲下载链接。
 func (c *Client) GetDownloadURL(songID string) (string, error) {
@@ -54,17 +59,34 @@ func (c *Client) getWeapiDownloadURL(songID string) (DownloadInfo, error) {
 }
 
 func (c *Client) getEAPIDownloadURL(songID, quality string) (DownloadInfo, error) {
+	for attempt := 0; ; attempt++ {
+		info, err := c.requestEAPIDownloadURL(songID, quality)
+		if !errors.Is(err, errEAPITemporaryRejection) || attempt >= 2 {
+			return info, err
+		}
+		// 暂时拒绝时先重试 EAPI，避免直接回退到不提供有效增益的 WeAPI。
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func (c *Client) requestEAPIDownloadURL(songID, quality string) (DownloadInfo, error) {
 	idNum, err := strconv.Atoi(songID)
 	if err != nil {
 		return DownloadInfo{}, fmt.Errorf("invalid song id: %w", err)
 	}
 
-	headerJSON := `{"os":"pc","appver":"","osver":"","deviceId":"pyncm!","requestId":"12345678"}`
+	// EAPI 需要一致的桌面客户端身份和会话；旧的空 appver / 浏览器 Cookie
+	// 虽然能取到 URL，但网易云可能只返回 gain: 0。
+	header := c.eapiHeader()
 	payload := map[string]any{
-		"ids":        []int{idNum},
+		"ids":        fmt.Sprintf("[%d]", idNum),
 		"level":      quality,
-		"encodeType": "flac",
-		"header":     headerJSON,
+		"encodeType": "mp3",
+		"header":     header,
+		"e_r":        false,
+	}
+	if quality == "lossless" || quality == "hires" {
+		payload["encodeType"] = "flac"
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	params := encryptEApi(downloadEAPI, string(payloadBytes))
@@ -72,12 +94,50 @@ func (c *Client) getEAPIDownloadURL(songID, quality string) (DownloadInfo, error
 	form := url.Values{}
 	form.Set("params", params)
 
-	body, err := c.hc.Post(downloadEAPI, strings.NewReader(form.Encode()), c.header())
+	cookies := make([]string, 0, len(header))
+	for key, value := range header {
+		cookies = append(cookies, url.QueryEscape(key)+"="+url.QueryEscape(value))
+	}
+	// 使用独立的 EAPI 请求头，避免混入浏览器 UA 和随机转发 IP。
+	client := utils.Client{}
+	body, err := client.Post(downloadEAPI, strings.NewReader(form.Encode()), http.Header{
+		"Content-Type": {"application/x-www-form-urlencoded"},
+		"User-Agent":   {"NeteaseMusic 9.0.90/5038 (iPhone; iOS 16.2; zh_CN)"},
+		"Cookie":       {strings.Join(cookies, "; ")},
+	})
 	if err != nil {
 		return DownloadInfo{}, err
 	}
 
+	if gjson.GetBytes(body, "code").Int() == -460 {
+		return DownloadInfo{}, errEAPITemporaryRejection
+	}
 	return parseDownloadInfo(body)
+}
+
+func (c *Client) eapiHeader() map[string]string {
+	now := time.Now()
+	header := map[string]string{
+		"os":          "pc",
+		"appver":      "3.1.17.204416",
+		"osver":       "Microsoft-Windows-10-Professional-build-19045-64bit",
+		"deviceId":    c.deviceID,
+		"versioncode": "140",
+		"mobilename":  "",
+		"buildver":    strconv.FormatInt(now.Unix(), 10),
+		"resolution":  "1920x1080",
+		"channel":     "netease",
+		"requestId":   fmt.Sprintf("%d_%04d", now.UnixMilli(), now.Nanosecond()%1000),
+		"__csrf":      "",
+	}
+	request := &http.Request{Header: c.header()}
+	for _, cookie := range request.Cookies() {
+		switch cookie.Name {
+		case "MUSIC_U", "NMTID", "__csrf":
+			header[cookie.Name] = cookie.Value
+		}
+	}
+	return header
 }
 
 func parseDownloadInfo(body []byte) (DownloadInfo, error) {
