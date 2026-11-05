@@ -1,13 +1,16 @@
 import type { ConnectionStatus, WebSocketConfig } from '@/types'
 import type {
   ErrorCode,
-  EventDataMap,
-  EventType,
+  PickRequest,
   RequestDataMap,
   RequestType,
   ResponseDataMap,
+  RoomSnapshot,
   Source,
-} from '@/types/ws-protocol'
+  StoreEventDataMap,
+  StoreEventType,
+} from '@/types/livehouse-protocol'
+import { pickMusic } from '@/utils/api'
 import { getAppConfig } from '@/utils/config'
 import { applyEnvironment } from '@/utils/environment'
 import { notificationStore } from './notification-store'
@@ -55,10 +58,10 @@ interface PendingRequest {
   timeoutTimer: ReturnType<typeof setTimeout>
 }
 
-type EventHandler<T extends EventType = EventType> = (data: EventDataMap[T]) => void
+type EventHandler<T extends StoreEventType = StoreEventType> = (data: StoreEventDataMap[T]) => void
 
 const pendingRequests = new Map<string, PendingRequest>()
-const eventHandlers = new Map<EventType, EventHandler<any>>()
+const eventHandlers = new Map<StoreEventType, EventHandler<any>>()
 
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -81,7 +84,7 @@ class WebSocketStore extends Store<WebSocketState> {
    * 注册广播事件处理器。事件与请求响应分离路由，
    * 同一个 type 的事件与响应不会互相触发。
    */
-  registerEventHandler<T extends EventType>(type: T, handler: EventHandler<T>) {
+  registerEventHandler<T extends StoreEventType>(type: T, handler: EventHandler<T>) {
     eventHandlers.set(type, handler)
   }
 
@@ -109,6 +112,72 @@ class WebSocketStore extends Store<WebSocketState> {
     pendingRequests.clear()
   }
 
+  private revisions = new Map<string, number>()
+
+  private acceptRevision(domain: string, revision: number): boolean {
+    if (revision <= (this.revisions.get(domain) ?? -1))
+      return false
+    this.revisions.set(domain, revision)
+    return true
+  }
+
+  private emit<T extends StoreEventType>(type: T, data: StoreEventDataMap[T]) {
+    eventHandlers.get(type)?.(data)
+  }
+
+  private applySnapshot(snapshot: RoomSnapshot) {
+    for (const domain of ['queue', 'playback', 'members', 'settings', 'chat']) {
+      if (snapshot.revision < (this.revisions.get(domain) ?? -1))
+        return
+    }
+    for (const domain of ['queue', 'playback', 'members', 'settings', 'chat'])
+      this.revisions.set(domain, snapshot.revision)
+    roomStore.updateRoomInfo(snapshot.room)
+    this.emit('queue.updated', snapshot.queue)
+    this.emit('playback.updated', snapshot.playback)
+    this.emit('members.updated', snapshot.members)
+    this.emit('settings.updated', snapshot.settings)
+  }
+
+  private handleEvent(message: { type: string, data?: any }) {
+    switch (message.type) {
+      case 'room.snapshot':
+        this.applySnapshot(message.data)
+        break
+      case 'queue.changed':
+        if (this.acceptRevision('queue', message.data.revision))
+          this.emit('queue.updated', message.data.queue)
+        break
+      case 'playback.changed':
+        if (this.acceptRevision('playback', message.data.revision))
+          this.emit('playback.updated', message.data.playback)
+        break
+      case 'members.changed':
+        if (this.acceptRevision('members', message.data.revision))
+          this.emit('members.updated', message.data.members)
+        break
+      case 'settings.changed':
+        if (this.acceptRevision('settings', message.data.revision))
+          this.emit('settings.updated', message.data.settings)
+        break
+      case 'chat.created':
+        if (this.acceptRevision('chat', message.data.revision))
+          this.emit('chat.message', message.data.message)
+        break
+      case 'sync.required':
+        void this.request('room.sync', {})
+          .then(snapshot => this.applySnapshot(snapshot))
+          .catch(error => notificationStore.error(error instanceof Error ? error.message : '房间同步失败'))
+        break
+      case 'room.closed':
+        notificationStore.error(message.data?.message || '房间连接已关闭')
+        break
+      case 'protocol.error':
+        notificationStore.error(message.data?.message || '协议错误')
+        break
+    }
+  }
+
   private handleMessage(event: MessageEvent) {
     let message: any
     try {
@@ -119,7 +188,7 @@ class WebSocketStore extends Store<WebSocketState> {
       console.warn('收到非 JSON 消息:', event.data)
       return
     }
-    if (!message || typeof message !== 'object' || message.version !== 1 || typeof message.type !== 'string') {
+    if (!message || typeof message !== 'object' || message.version !== 2 || typeof message.type !== 'string') {
       console.warn('收到无效的消息格式:', event.data)
       return
     }
@@ -129,9 +198,7 @@ class WebSocketStore extends Store<WebSocketState> {
       return
     }
     if (message.kind === 'event') {
-      if (message.type === 'protocol.error')
-        notificationStore.error(message.data?.message || '协议错误')
-      eventHandlers.get(message.type as EventType)?.(message.data)
+      this.handleEvent(message)
       return
     }
     console.warn('收到未知方向的消息:', event.data)
@@ -202,15 +269,16 @@ class WebSocketStore extends Store<WebSocketState> {
     }
 
     this.clearReconnectTimer()
+    this.revisions.clear()
     manuallyClosed = false
     this.setState({ isConnecting: true, connectionStatus: 'connecting' })
     this.bindLifecycle()
 
     try {
-      const params = new URLSearchParams({ houseId: roomStore.state.id })
+      const params = new URLSearchParams({ roomId: roomStore.state.id })
       if (password)
-        params.set('housePwd', password)
-      const wsUrl = applyEnvironment(new URL('/server', getAppConfig().websocket.url))
+        params.set('password', password)
+      const wsUrl = applyEnvironment(new URL('/ws', getAppConfig().websocket.url))
       wsUrl.search = new URLSearchParams([...wsUrl.searchParams, ...params]).toString()
 
       console.log('连接 WebSocket:', wsUrl)
@@ -300,7 +368,7 @@ class WebSocketStore extends Store<WebSocketState> {
       return
     const c0 = Date.now()
     try {
-      const res = await this.request('heartbeat', { clientTimeMs: c0 }, HEARTBEAT_TIMEOUT)
+      const res = await this.request('clock.ping', { clientTimeMs: c0 }, HEARTBEAT_TIMEOUT)
       this.recordClockSample(c0, Date.now(), res.serverTimeMs)
     } catch {
       // 心跳失败仅清理 pending，不触发重连
@@ -469,7 +537,7 @@ class WebSocketStore extends Store<WebSocketState> {
       }, timeoutMs)
       pendingRequests.set(requestId, { type, resolve, reject, timeoutTimer })
       try {
-        ws.send(JSON.stringify({ version: 1, kind: 'request', type, requestId, data }))
+        ws.send(JSON.stringify({ version: 2, kind: 'request', type, requestId, data }))
       } catch (error) {
         pendingRequests.delete(requestId)
         clearTimeout(timeoutTimer)
@@ -516,7 +584,7 @@ class WebSocketStore extends Store<WebSocketState> {
 
   private async pickByCommand(source: Source, id?: string, name?: string) {
     try {
-      const res = await this.request('music.pick', { source, id, name } as RequestDataMap['music.pick'])
+      const res = await pickMusic({ source, id, name } as PickRequest)
       notificationStore.success(`已发送点歌请求: ${res.name}`)
     } catch (error) {
       notificationStore.error((error as RequestError).message)

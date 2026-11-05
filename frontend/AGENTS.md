@@ -33,7 +33,7 @@ src/
 ├── main.tsx                   # React 入口，初始化性能与外观
 ├── app.tsx                    # 主界面、导航、懒加载、房间切换
 ├── hooks/use-store.ts         # useSyncExternalStore 字段选择器
-├── stores/                    # EventTarget Store，保留同步播放与 v1 协议
+├── stores/                    # EventTarget Store，保留同步播放与 livehouse v2 协议
 │   ├── player-store.ts
 │   ├── websocket-store.ts
 │   ├── appearance-store.ts    # 主题与 --ui-font-size
@@ -52,7 +52,7 @@ src/
 │   ├── settings-modal.tsx
 │   ├── notifications.tsx
 │   └── ui.tsx                 # 公共控件与原生 dialog
-├── types/                     # UI 类型与生成的 ws-protocol.ts
+├── types/                     # UI 类型与 livehouse-protocol.ts v2 协议类型
 ├── utils/                     # API、用户、时间、移动端、弹窗历史等
 ├── style.css                  # 语义颜色、字号、布局
 └── styles/performance.css     # 四级性能覆盖规则
@@ -153,50 +153,44 @@ npm run preview
 
 ## WebSocket 通信架构
 
-WebSocket 服务器地址通过环境变量 `VITE_WS_URL` 配置。
+WebSocket 服务器地址通过环境变量 `VITE_WS_URL` 配置。Rust livehouse 是唯一房间状态持有者，gateway 按 Redis 房间归属转发；Go livehouse-api 只保留 HTTP 兼容 API。
 
 ### 连接方式
-- 连接 URL 格式：`${wsUrl}/server?houseId=${roomId}&housePwd=${password}`
+- 连接 URL 格式：`${wsUrl}/ws?roomId=${roomId}&password=${password}`
 - 自动重连：**指数退避且不设次数上限**，3s → 6s → 12s → 24s → 30s(封顶)。不要改回「固定次数后放弃」，移动端切后台会导致永久失联
-- 心跳间隔：5 秒，发送 v1 `heartbeat` 请求并携带 `clientTimeMs`；服务端响应用于估计时钟偏移（见「播放器同步机制」），同时兼作保活帧（避免连接被反向代理 / NAT 按空闲回收）
-- **不要**仅凭「未收到心跳响应」判断连接死活：静音房间和每次回前台都会被误判成断线，导致频繁重连。失效检测只依赖不依赖回包的信号——死连接上的 write 会触发 `onerror`/`onclose`，回前台时检查 `readyState`
-- 自愈触发点：`visibilitychange`(回前台) / `online`(网络恢复) / `pageshow`(bfcache 恢复)。回前台时若报 `connected` 会先探活再决定是否重连，避免无谓重连
+- 心跳间隔：5 秒，发送 v2 `clock.ping` 请求并携带 `clientTimeMs`；服务端响应用于估计时钟偏移，同时兼作保活帧
+- **不要**仅凭「未收到心跳响应」判断连接死活。失效检测依赖死连接 write 触发的 `onerror`/`onclose`，回前台时检查 `readyState`
+- 自愈触发点：`visibilitychange` / `online` / `pageshow`。已有连接在回前台时先探活，避免无谓重连
 
-### 消息格式（v1 协议）
+### 消息格式（livehouse v2）
 
-统一消息信封 `{ version: 1, kind, type, requestId?, data }`，类型定义在 `src/types/ws-protocol.ts`（复制自服务端 `protocol/ws.gen.ts`，属生成物，改动协议后从服务端同步，不要手改）。
+线上信封 `{ version: 2, kind, type, requestId?, data }` 与 DTO 定义于 `src/types/livehouse-protocol.ts`、`livehouse-worker/src/protocol.rs` 和 `livehouse-worker/src/model.rs`。旧 v1 协议与生成器已移除。
 
-- `kind`：`request` / `response` / `event`；请求与响应通过 `requestId` 关联，事件无 `requestId`
-- 所有业务数据放在 `data`；来源枚举为 `netease` / `qq` / `kuwo`（不接受 `wy`、数字来源或 `db`）；ID 一律字符串；时间与时长均为毫秒整数字段（`Ms` 后缀）
+- 请求与响应通过 `requestId` 关联，事件无 `requestId`；所有业务数据放在 `data`
+- 来源为 `netease` / `qq` / `kuwo`，ID 为字符串，时间和时长为毫秒整数
+- 加入后先接收 `room.snapshot`；`queue.changed`、`playback.changed`、`members.changed`、`settings.changed`、`chat.created` 携带 `revision`
+- 各领域独立丢弃旧 revision；同一 revision 可同时包含队列和播放变化。收到 `sync.required` 时用 `room.sync` 获取完整快照
 
 ### 消息路由机制
 
-- 发送统一走 `websocketStore.request(type, data)`：生成信封与 `requestId`，登记 pending 后写入 socket，按 `requestId` 关联响应 resolve/reject；请求设超时（默认 60s），断线时拒绝并清理全部 pending，超时后不自动重放写操作
-- 广播事件用 `websocketStore.registerEventHandler(type, handler)` 订阅，handler 直接接收 `data`；事件与响应分离路由，不能混在一个 handler 中
-- `protocol.error` 事件与失败响应的 `error.message` 统一弹 Toast；不得解析文案判断业务分支
-
-### 主要请求类型
-
-- `music.pick`、`playback.skipVote`、`playback.get`、`queue.like`、`queue.remove`、`queue.get`
-- `chat.send`、`members.get`、`settings.get`、`settings.set`（部分设置字段，按需携带，如 `{ playMode }`）、`user.update`
-- `music.search`、`playlist.search`、`music.recommend`
-
-### 主要广播事件
-
-- `playback.updated`（播放状态）、`queue.updated`（队列快照，含 `current` 与 `items`，用于结构变化后的整体替换）、`queue.removed`（切歌时被取走的歌曲，按 `source`/`id` 本地删除）、`members.updated`、`chat.message`、`settings.updated`、`notice`、`protocol.error`
+- Store 直接调用 `websocketStore.request(type, data)` 发送 v2 请求；该层处理 pending、超时与断线清理，写操作不自动重放
+- Store 通过 `registerEventHandler` 订阅内部 DTO 事件；v2 的 snapshot/changed 事件由 WebSocket 层转换为播放、队列等局部快照后分发
+- `protocol.error` 与失败响应统一弹 Toast；不得解析文案判断业务分支
+- 实时请求仅包括队列、投票切歌、聊天、成员、设置和播放同步。不提供暂停、恢复或 seek
+- 点歌、搜索、歌单与推荐统一走 `utils/api.ts` 的 HTTP 请求，均不依赖 WebSocket 连接状态
+- 加入后的 `room.snapshot` 已包含播放、队列、成员和设置，不要在每次连接后重复请求这四类快照；没有周期 `playback.sync` 大快照
 
 ---
 
 ## 播放器同步机制
 
-- `startedAtMs`：当前歌曲开始播放的服务器时间戳（毫秒），来自 `playback.updated` / `playback.get`
-- 「正在播放」只有 `currentSong` 一个来源，取自播放快照；`queue.updated` 只替换等待队列。用队列快照的 `current` 更新当前歌曲会被旧快照覆盖回上一首
-- `clockOffsetMs`：由心跳（及 `user.update`）响应估计的时钟偏移，`offset = serverTimeMs - (C0 + C1) / 2`，优先取往返时延最小的样本；收到首次样本前为 0
-- 客户端计算播放位置：`elapsedMs = Date.now() + clockOffsetMs - startedAtMs`，再 clamp 到 `[0, durationMs]` 后除以 1000 写入音频
-- 播放开始时间可能领先约 200ms：`elapsedMs < 0` 时等到开始时间再播放，不要误判为时钟错误
-- 服务端保留播完的最后一首元信息：按 `durationMs` 停止播放，不要把非空 `song` 当作「仍在播放」的标志
-- UI `Song.duration` 全程为毫秒（`durationMs`），显示或写入音频 API 时才除以 1000
-- 进度更新：使用 `requestAnimationFrame` + `audio.timeupdate` 双循环
+- `startedAtMs`：当前歌曲开始播放的服务器时间戳，来自初始快照或播放变更事件
+- 「正在播放」只有 `currentSong` 一个来源，取自播放快照；`queue.updated` 只替换等待队列，不能用队列的 `current` 覆盖播放状态
+- `clockOffsetMs`：由心跳及用户更新响应估计，优先取往返时延最小的样本
+- 播放位置按 `Date.now() + clockOffsetMs - startedAtMs` 推导，clamp 到 `[0, durationMs]` 后除以 1000 写入音频；服务端不提供暂停和 seek
+- 播放开始时间可能领先约 200ms：负数进度应等待开始，不要误判为时钟错误
+- 按 `durationMs` 停止播放，不要把非空 `song` 当作「仍在播放」的标志
+- UI `Song.duration` 全程为毫秒；进度更新使用 `requestAnimationFrame` + `audio.timeupdate` 双循环
 
 ---
 

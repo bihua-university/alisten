@@ -5,6 +5,8 @@ export interface Song {
   album: string
   cover: string
   url?: string
+  /** ReplayGain，单位 dB。 */
+  gain?: number
   webUrl?: string
   duration: number
   requestedBy?: User

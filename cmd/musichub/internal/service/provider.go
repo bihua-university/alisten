@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/RomiChan/protobuf/proto"
 	"github.com/bihua-university/alisten/cmd/musichub/internal/config"
 	"github.com/bihua-university/alisten/cmd/musichub/internal/kuwo"
 	"github.com/bihua-university/alisten/cmd/musichub/internal/netease"
@@ -152,12 +153,17 @@ func (p *neteaseProvider) GetSong(ctx context.Context, id string) (*pb.Song, err
 	m := songs[0]
 
 	// 下载链接与歌词失败不阻塞，保持与历史行为一致
-	url, _ := p.client.GetDownloadURL(id)
+	stream, _ := p.client.GetDownloadInfo(id)
 	lyric, _ := p.client.GetLyrics(id)
+	gain := proto.None[float64]()
+	if stream.Gain != nil {
+		gain = proto.Some(*stream.Gain)
+	}
 
 	return &pb.Song{
 		Type:       "music",
-		Url:        url,
+		Url:        stream.URL,
+		Gain:       gain,
 		WebUrl:     music.NetEase.WebURL(id),
 		PictureUrl: m.Cover,
 		Duration:   m.Duration,

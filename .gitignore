@@ -3,11 +3,14 @@ config.json
 /musichub.exe
 /alisten
 /alisten.exe
-/room-service
-/room-service.exe
+/livehouse-api
+/livehouse-api.exe
 /gateway-bin
 /gateway-bin.exe
 /gateway/target
+/target
+/livehouse-worker-bin
+/livehouse-worker-bin.exe
 /.tmp
 /certs
 dist

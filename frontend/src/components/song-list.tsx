@@ -1,5 +1,5 @@
 import type { Song } from '@/types'
-import type { Source } from '@/types/ws-protocol'
+import type { Source } from '@/types/livehouse-protocol'
 import { CirclePlus, Heart, Trash2 } from 'lucide-react'
 import { memo } from 'react'
 import { playerStore } from '@/stores/player-store'

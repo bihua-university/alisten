@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/nacos-client", "gateway", "livehouse-worker"]
+resolver = "2"

@@ -33,17 +33,23 @@ func (p Playlist) MarshalJSON() ([]byte, error) {
 }
 
 func (s Song) MarshalJSON() ([]byte, error) {
+	var gain *float64
+	if s.Gain.IsSome() {
+		value := s.Gain.Unwrap()
+		gain = &value
+	}
 	return json.Marshal(struct {
-		Type       string `json:"type"`
-		URL        string `json:"url"`
-		WebURL     string `json:"webUrl"`
-		PictureURL string `json:"pictureUrl"`
-		Duration   int64  `json:"duration"`
-		Source     string `json:"source"`
-		Lyric      string `json:"lyric"`
-		Artist     string `json:"artist"`
-		Name       string `json:"name"`
-		Album      string `json:"album"`
-		ID         string `json:"id"`
-	}{s.Type, s.Url, s.WebUrl, s.PictureUrl, s.Duration, s.Source, s.Lyric, s.Artist, s.Name, s.Album, s.Id})
+		Type       string   `json:"type"`
+		URL        string   `json:"url"`
+		WebURL     string   `json:"webUrl"`
+		PictureURL string   `json:"pictureUrl"`
+		Duration   int64    `json:"duration"`
+		Source     string   `json:"source"`
+		Lyric      string   `json:"lyric"`
+		Artist     string   `json:"artist"`
+		Name       string   `json:"name"`
+		Album      string   `json:"album"`
+		ID         string   `json:"id"`
+		Gain       *float64 `json:"gain,omitempty"`
+	}{s.Type, s.Url, s.WebUrl, s.PictureUrl, s.Duration, s.Source, s.Lyric, s.Artist, s.Name, s.Album, s.Id, gain})
 }

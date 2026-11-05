@@ -1,5 +1,7 @@
 import type { SearchResult, Song } from '@/types'
-import type { PlaybackData, QueueData, QueueItem, SongRef, Source } from '@/types/ws-protocol'
+import type { PlaybackData, QueueData, QueueItem, Source } from '@/types/livehouse-protocol'
+import { pickMusic as pickMusicAPI, recommendMusic, resolveMusic } from '@/utils/api'
+import { gainToCoefficient, readReplayGain } from '@/utils/replay-gain'
 import { adaptProtocolUser, getDefaultAvatar } from '@/utils/user'
 import { lyricsStore } from './lyrics-store'
 import { mediaSessionStore } from './media-session-store'
@@ -20,7 +22,7 @@ interface PlayerState {
   recommendations: SearchResult[]
 }
 
-let volumeCoef = 1
+const DEFAULT_GAIN_COEFFICIENT = 0.6
 let audioPlayer: HTMLAudioElement | null = null
 let rafId: number | null = null
 let currentTimeValue = 0
@@ -77,6 +79,15 @@ function mapQueueItem(item: QueueItem): Song {
 
 class PlayerStore extends Store<PlayerState> {
   private lastLyricContent = ''
+  private playbackData: PlaybackData | null = null
+  private playbackResolution = 0
+  private resolvedPlayback: { key: string, url: string, gain?: number } | null = null
+  private lastAudioErrorKey = ''
+  private replayGainUrl: string | null = null
+  private replayGainDb: number | undefined
+  private replayGainCoefficient: number | null = null
+  private replayGainRequest: AbortController | null = null
+  private gainCoefficient = DEFAULT_GAIN_COEFFICIENT
   private handleCanPlay = () => {
     void this.onCanPlay()
   }
@@ -94,26 +105,23 @@ class PlayerStore extends Store<PlayerState> {
     })
 
     websocketStore.registerEventHandler('playback.updated', (data) => {
-      this.applyPlayback(data)
+      void this.applyPlayback(data)
     })
 
     websocketStore.registerEventHandler('queue.updated', (data) => {
       this.applyQueue(data)
     })
-
-    websocketStore.registerEventHandler('queue.removed', (data) => {
-      this.removeFromQueue(data)
-    })
-
-    websocketStore.registerEventHandler('notice', (data) => {
-      notificationStore.info(data.message)
-    })
   }
 
-  /** 应用播放状态快照，playback.get 响应与 playback.updated 事件共用 */
-  private applyPlayback(data: PlaybackData) {
+  /** 应用播放状态快照，播放前通过 livehouse-api 获取最新音频地址。 */
+  private async applyPlayback(data: PlaybackData) {
+    const resolution = ++this.playbackResolution
+    this.playbackData = data
     if (!data.song) {
-      // 房间当前没有歌曲：停止播放并清空
+      this.resolvedPlayback = null
+      this.lastAudioErrorKey = ''
+      this.playbackData = null
+      this.updateReplayGain(null)
       this.clearDelayedStart()
       if (audioPlayer) {
         audioPlayer.pause()
@@ -127,8 +135,34 @@ class PlayerStore extends Store<PlayerState> {
     }
 
     const song = data.song
+    const key = `${song.source}:${song.id}:${data.startedAtMs}`
+    if (this.lastAudioErrorKey !== key)
+      this.lastAudioErrorKey = ''
+    if (this.resolvedPlayback?.key === key) {
+      this.applyResolvedPlayback(data, this.resolvedPlayback.url, this.resolvedPlayback.gain)
+      return
+    }
+
+    if (this.state.currentSong?.id !== song.id || this.state.currentSong.source !== song.source)
+      audioPlayer?.pause()
+    this.applyResolvedPlayback(data, '')
+    try {
+      const resolved = await resolveMusic(song.source, song.id)
+      if (resolution !== this.playbackResolution)
+        return
+      this.resolvedPlayback = { key, url: resolved.url, gain: resolved.gain }
+      this.applyResolvedPlayback(data, resolved.url, resolved.gain)
+    } catch (error) {
+      if (resolution === this.playbackResolution)
+        notificationStore.error(error instanceof Error ? error.message : '获取播放地址失败')
+    }
+  }
+
+  private applyResolvedPlayback(data: PlaybackData, url: string, gain?: number) {
+    const song = data.song!
     const music: Song = {
-      url: normalizeAudioUrl(song.url),
+      url: normalizeAudioUrl(url),
+      gain,
       id: song.id,
       source: song.source,
       title: song.name,
@@ -138,13 +172,12 @@ class PlayerStore extends Store<PlayerState> {
       cover: song.pictureUrl || getDefaultAvatar(song.id),
       webUrl: song.webUrl || undefined,
     }
-    // 服务器音量修正系数（最大 150%），仅修正实际播放音量，不影响前端音量条
-    volumeCoef = Math.max(0, Math.min(1.5, data.volumeCoefficient))
+    this.updateReplayGain(music.url || null, music.gain)
+    this.applyGain(this.replayGainCoefficient ?? DEFAULT_GAIN_COEFFICIENT)
 
     this.setState({ currentSong: music, startedAtMs: data.startedAtMs })
     if (audioPlayer) {
       audioPlayer.volume = this.getEffectiveVolume()
-      console.log(`实际播放音量已修正: ${(audioPlayer.volume * 100).toFixed(1)}%（用户音量: ${this.state.volume}%，修正系数: ${(volumeCoef * 100).toFixed(1)}%）`)
     }
     const lyricContent = song.lyric || ''
     if (lyricContent !== this.lastLyricContent) {
@@ -163,31 +196,63 @@ class PlayerStore extends Store<PlayerState> {
     this.setState({ playlist: data.items.map(mapQueueItem) })
   }
 
-  /**
-   * 切歌时服务器只下发被取走的那首歌，这里按 source/id 本地删除。
-   * 随机播放取走的不是首项，同样能正确定位。
-   */
-  private removeFromQueue(ref: SongRef) {
-    const playlist = this.state.playlist
-    const index = playlist.findIndex(song => song.id === ref.id && song.source === ref.source)
-    if (index === -1)
+  private updateReplayGain(url: string | null, gainDb?: number) {
+    if (url === this.replayGainUrl && gainDb === this.replayGainDb)
       return
-    this.setState({ playlist: [...playlist.slice(0, index), ...playlist.slice(index + 1)] })
+    this.replayGainRequest?.abort()
+    this.replayGainRequest = null
+    this.replayGainUrl = url
+    this.replayGainDb = gainDb
+    this.replayGainCoefficient = null
+    if (!url) {
+      this.resetGain()
+      return
+    }
+    const coefficient = gainToCoefficient(gainDb)
+    if (coefficient !== null) {
+      this.replayGainCoefficient = coefficient
+      this.applyGain(coefficient)
+      return
+    }
+    const request = new AbortController()
+    this.replayGainRequest = request
+    void readReplayGain(url, request.signal).then((coefficient) => {
+      if (request.signal.aborted)
+        return
+      this.replayGainCoefficient = coefficient
+      this.applyGain(coefficient ?? DEFAULT_GAIN_COEFFICIENT)
+    })
   }
 
-  // 实际播放音量 = 用户音量 × 服务器修正系数，浏览器上限 100%
+  private resetGain() {
+    this.applyGain(DEFAULT_GAIN_COEFFICIENT)
+  }
+
+  private applyGain(coefficient: number) {
+    this.gainCoefficient = coefficient
+    if (audioPlayer)
+      audioPlayer.volume = this.getEffectiveVolume()
+  }
+
+  // 用户音量与歌曲增益立即生效。
+  // HTMLAudioElement 的音量上限为 100%。
   private getEffectiveVolume(): number {
-    return Math.min(1, (this.state.volume / 100) * volumeCoef)
+    return Math.min(1, (this.state.volume / 100) * this.gainCoefficient)
   }
 
   setAudioPlayer(el: HTMLAudioElement | null) {
     audioPlayer?.removeEventListener('canplay', this.handleCanPlay)
+    this.resetGain()
     this.clearDelayedStart()
     this.stopProgressUpdate()
     audioPlayer = el
     if (el) {
+      this.updateReplayGain(this.state.currentSong?.url || null, this.state.currentSong?.gain)
+      this.applyGain(this.replayGainCoefficient ?? DEFAULT_GAIN_COEFFICIENT)
       el.volume = this.getEffectiveVolume()
       el.muted = this.state.isMuted
+    } else {
+      this.updateReplayGain(null)
     }
   }
 
@@ -321,6 +386,15 @@ class PlayerStore extends Store<PlayerState> {
   onAudioError(event: Event) {
     const audio = event.target as HTMLAudioElement
     console.error('音频播放错误:', audio.error)
+    const data = this.playbackData
+    if (!data?.song)
+      return
+    const key = `${data.song.source}:${data.song.id}:${data.startedAtMs}`
+    if (this.lastAudioErrorKey === key)
+      return
+    this.lastAudioErrorKey = key
+    this.resolvedPlayback = null
+    void this.applyPlayback(data)
   }
 
   async onCanPlay() {
@@ -391,7 +465,7 @@ class PlayerStore extends Store<PlayerState> {
   async pickMusic(result: { id?: string, title: string, source?: string }) {
     const source = (result.source || 'netease') as Source
     try {
-      const res = await websocketStore.request('music.pick', { source, id: result.id, name: result.title })
+      const res = await pickMusicAPI({ source, id: result.id, name: result.title })
       notificationStore.success(`已发送点歌请求: ${res.name}`)
     } catch (error) {
       notificationStore.error(error instanceof Error ? error.message : '点歌失败')
@@ -417,7 +491,7 @@ class PlayerStore extends Store<PlayerState> {
       const previousUrl = this.state.currentSong?.url
       const previousStartedAtMs = this.state.startedAtMs
       const data = await websocketStore.request('playback.get', {})
-      this.applyPlayback(data)
+      await this.applyPlayback(data)
       // Explicit resume/sync still seeks once even for an identical snapshot.
       if (this.state.currentSong?.url && this.state.currentSong.url === previousUrl
         && this.state.startedAtMs === previousStartedAtMs) {
@@ -437,6 +511,11 @@ class PlayerStore extends Store<PlayerState> {
   }
 
   resetRoom() {
+    this.playbackResolution++
+    this.playbackData = null
+    this.resolvedPlayback = null
+    this.lastAudioErrorKey = ''
+    this.updateReplayGain(null)
     this.clearDelayedStart()
     audioPlayer?.pause()
     audioPlayer?.removeAttribute('src')
@@ -451,7 +530,7 @@ class PlayerStore extends Store<PlayerState> {
 
   async pullRecommendations() {
     try {
-      const data = await websocketStore.request('music.recommend', {})
+      const data = await recommendMusic(this.state.currentSong?.source === 'netease' ? this.state.currentSong.id : undefined)
       const results: SearchResult[] = data.items
         .filter(item => item && item.id && item.name)
         .map(item => ({

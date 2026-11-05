@@ -305,11 +305,11 @@ function CreateRoom({
         needPwd: locked,
         password: locked ? password.trim() : '',
       })
-      if (response.code !== '20000' || !response.data)
-        throw new Error(response.message || '创建失败')
+      if (!response.houseId)
+        throw new Error('创建失败')
       onJoin(
         {
-          id: response.data,
+          id: response.houseId,
           name: name.trim(),
           description: desc.trim(),
           needPwd: locked,

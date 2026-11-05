@@ -3,6 +3,8 @@
 
 package musichub
 
+import proto "github.com/RomiChan/protobuf/proto"
+
 type Empty struct {
 	_ [0]func()
 }
@@ -47,17 +49,18 @@ type Playlist struct {
 }
 
 type Song struct {
-	Type       string `protobuf:"bytes,1,opt"`
-	Url        string `protobuf:"bytes,2,opt"`
-	WebUrl     string `protobuf:"bytes,3,opt"`
-	PictureUrl string `protobuf:"bytes,4,opt"`
-	Duration   int64  `protobuf:"varint,5,opt"`
-	Source     string `protobuf:"bytes,6,opt"`
-	Lyric      string `protobuf:"bytes,7,opt"`
-	Artist     string `protobuf:"bytes,8,opt"`
-	Name       string `protobuf:"bytes,9,opt"`
-	Album      string `protobuf:"bytes,10,opt"`
-	Id         string `protobuf:"bytes,11,opt"`
+	Type       string                `protobuf:"bytes,1,opt"`
+	Url        string                `protobuf:"bytes,2,opt"`
+	WebUrl     string                `protobuf:"bytes,3,opt"`
+	PictureUrl string                `protobuf:"bytes,4,opt"`
+	Duration   int64                 `protobuf:"varint,5,opt"`
+	Source     string                `protobuf:"bytes,6,opt"`
+	Lyric      string                `protobuf:"bytes,7,opt"`
+	Artist     string                `protobuf:"bytes,8,opt"`
+	Name       string                `protobuf:"bytes,9,opt"`
+	Album      string                `protobuf:"bytes,10,opt"`
+	Id         string                `protobuf:"bytes,11,opt"`
+	Gain       proto.Option[float64] `protobuf:"fixed64,12,opt"` // ReplayGain in dB; absent when unavailable
 	_          [0]func()
 }
 

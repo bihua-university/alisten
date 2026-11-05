@@ -273,7 +273,7 @@ The top bar and bottom player never use blur. General `.glass-surface` performan
 - UI song durations use milliseconds, converting to seconds only for display or audio APIs. Preserve server clock offset and start-time synchronization.
 - Preserve unlimited WebSocket reconnection with exponential backoff, heartbeat clock calibration, and recovery on returning to the foreground or regaining the network. Do not repeatedly reconnect because heartbeat responses are absent.
 - On server disconnect, connection error, or message write failure, clean up the invalid connection and retry automatically after 3 / 6 / 12 / 24 / 30 seconds, capped at 30 seconds with unlimited attempts. Delayed events from an old connection must not overwrite the new connection's state. After recovery, refetch playback, queue, members, and settings. A user-initiated disconnect stops reconnection.
-- Requests and events continue using the v1 protocol. Do not manually edit generated protocol types or automatically replay writes after disconnection.
+- Requests and events use only the livehouse v2 protocol. Apply revisioned snapshots and never automatically replay writes after disconnection.
 - Accept search results only from the latest request. Support cancellation for HTTP queries to prevent stale results from replacing the current view.
 - Rooms, songs, users, and online status come from real data. Do not fill the production interface with demo content.
 

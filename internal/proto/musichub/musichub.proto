@@ -53,6 +53,7 @@ message Song {
   string name = 9;
   string album = 10;
   string id = 11;
+  optional double gain = 12; // ReplayGain in dB; absent when unavailable
 }
 
 message MusicResult {

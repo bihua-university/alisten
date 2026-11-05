@@ -25,7 +25,7 @@ npm run build
 npm run preview
 ```
 
-环境变量：`VITE_WS_URL`、`VITE_API_URL`、`VITE_APP_NAME`。WebSocket 使用 v1 协议，见 `websocket-v1-migration.md`。
+环境变量：`VITE_WS_URL`、`VITE_API_URL`、`VITE_APP_NAME`。WebSocket 仅使用 livehouse v2 协议，见 `../docs/protocol.md`。
 
 ## 架构与性能
 
@@ -41,6 +41,8 @@ npm run preview
 播放进度保持约 10fps 的 DOM 更新，不触发整页 React 渲染；歌词只更新当前行。搜索、设置、历史等页面懒加载，封面延迟加载，长列表减少屏外绘制。WebSocket 无限指数退避、心跳校时、网络恢复和回前台探活机制保持不变。
 
 `canplay` 初始化每次音频加载仅执行一次，避免 seek 触发重复同步。相同播放广播不重新启动音频；显式恢复播放会请求最新位置。未来开始时间等待后播放，已播完的元信息保留但音频暂停。
+
+播放器异步读取音频文件头中的 `REPLAYGAIN_TRACK_GAIN`，按 `10^(dB/20)` 修正当前设备音量，音量条保持用户设置。歌曲增益在约 2 秒内平滑过渡到目标值，用户调音量和静音仍立即生效。增益仅使用音频标签，无有效标签或 CDN 不允许跨域读取时默认使用 0.6（普通流行），服务端不再下发增益。每个音频 URL 最多读取文件头 1 MiB、等待 5 秒，切歌取消旧请求和过时的增益渐变，不阻塞播放；文件尾标签或超出读取范围的标签不支持。实际输出受浏览器音量上限 100% 限制。
 
 界面和工程规范见 `DESIGN.md`；协作说明见 `AGENTS.md`。
 

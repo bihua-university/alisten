@@ -1,9 +1,9 @@
-mod nacos;
+mod routing;
 mod tls;
 
 use anyhow::{bail, Result};
 use async_trait::async_trait;
-use nacos::NacosClient;
+use nacos_client::NacosClient;
 use pingora::{
     http::RequestHeader,
     listeners::tls::TlsSettings,
@@ -13,10 +13,12 @@ use pingora::{
     upstreams::peer::HttpPeer,
     Error, ErrorType, Result as PingoraResult,
 };
+use routing::RoomRouter;
 use tls::CertificateResolver;
 
 struct Gateway {
     nacos: NacosClient,
+    rooms: RoomRouter,
     service_name: String,
     canary_namespace: Option<String>,
 }
@@ -46,39 +48,46 @@ impl ProxyHttp for Gateway {
         session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> PingoraResult<Box<HttpPeer>> {
-        let namespace = selected_namespace(session.req_header(), self.canary_namespace.as_deref());
-        log::info!(
-            "upstream discovery service={} namespace={}",
-            self.service_name,
-            match self.nacos.namespace(namespace) {
-                "" => "public",
-                value => value,
-            }
-        );
-        let address = self
-            .nacos
-            .discover(&self.service_name, namespace)
-            .await
-            .map_err(|error| {
-                Error::explain(
-                    ErrorType::HTTPStatus(503),
-                    format!("room-service discovery failed: {error:#}"),
-                )
-            })?;
+        let request = session.req_header();
+        let path = request.uri.path();
+        if path == "/rpc" || path.starts_with("/internal/") {
+            return Err(Error::explain(ErrorType::HTTPStatus(404), "not found"));
+        }
+        let namespace = selected_namespace(request, self.canary_namespace.as_deref());
+        let address = if path == "/ws" {
+            let room_id = routing::room_id_from_query(request.uri.query())
+                .ok_or_else(|| Error::explain(ErrorType::HTTPStatus(400), "missing roomId"))?;
+            self.rooms
+                .route(&room_id, namespace)
+                .await
+                .map_err(|error| {
+                    Error::explain(
+                        ErrorType::HTTPStatus(503),
+                        format!("livehouse routing failed: {error:#}"),
+                    )
+                })?
+        } else {
+            self.nacos
+                .discover(&self.service_name, namespace)
+                .await
+                .map_err(|error| {
+                    Error::explain(
+                        ErrorType::HTTPStatus(503),
+                        format!("livehouse-api discovery failed: {error:#}"),
+                    )
+                })?
+        };
         let address = tokio::net::lookup_host(&address)
             .await
             .map_err(|error| {
                 Error::explain(
                     ErrorType::HTTPStatus(503),
-                    format!("resolve room-service {address}: {error}"),
+                    format!("resolve upstream {address}: {error}"),
                 )
             })?
             .next()
             .ok_or_else(|| {
-                Error::explain(
-                    ErrorType::HTTPStatus(503),
-                    "room-service address resolved to no IPs",
-                )
+                Error::explain(ErrorType::HTTPStatus(503), "upstream resolved to no IPs")
             })?;
         Ok(Box::new(HttpPeer::new(address, false, String::new())))
     }
@@ -105,12 +114,26 @@ impl ProxyHttp for Gateway {
 
     fn fail_to_connect(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         _peer: &HttpPeer,
         _ctx: &mut Self::CTX,
         error: Box<Error>,
     ) -> Box<Error> {
-        self.nacos.invalidate();
+        let request = session.req_header();
+        if request.uri.path() == "/ws" {
+            if let Some(room_id) = routing::room_id_from_query(request.uri.query()) {
+                let namespace = selected_namespace(request, self.canary_namespace.as_deref())
+                    .map(str::to_owned);
+                let rooms = self.rooms.clone();
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    runtime.spawn(async move {
+                        let _ = rooms.invalidate(&room_id, namespace.as_deref()).await;
+                    });
+                }
+            }
+        } else {
+            self.nacos.invalidate();
+        }
         error
     }
 }
@@ -119,12 +142,16 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let nacos = NacosClient::new(&std::env::var("NACOS_SERVER_ADDR").unwrap_or_default())?;
     let service_name =
-        std::env::var("ROOM_SERVICE_NAME").unwrap_or_else(|_| "room-service".to_owned());
+        std::env::var("LIVEHOUSE_API_NAME").unwrap_or_else(|_| "livehouse-api".to_owned());
     let canary_namespace = std::env::var("CANARY_NACOS_NAMESPACE")
         .ok()
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty());
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_owned());
+    let rooms = RoomRouter::new(
+        &std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_owned()),
+        std::env::var("LIVEHOUSE_REDIS_PREFIX").unwrap_or_else(|_| "livehouse".to_owned()),
+    )?;
 
     let mut server = Server::new(None)?;
     server.bootstrap();
@@ -132,6 +159,7 @@ fn main() -> Result<()> {
         &server.configuration,
         Gateway {
             nacos,
+            rooms,
             service_name,
             canary_namespace,
         },
@@ -172,19 +200,16 @@ mod tests {
 
     #[test]
     fn routes_query_and_header_only_when_canary_enabled() {
-        let mut request = RequestHeader::build(
-            "GET",
-            b"/server?houseId=test&housePwd=a%26b&env=canary",
-            None,
-        )
-        .unwrap();
+        let mut request =
+            RequestHeader::build("GET", b"/ws?houseId=test&housePwd=a%26b&env=canary", None)
+                .unwrap();
         assert_eq!(
             selected_namespace(&request, Some("preview")),
             Some("preview")
         );
         assert_eq!(selected_namespace(&request, None), None);
         assert_eq!(selected_namespace(&request, Some("")), None);
-        request = RequestHeader::build("GET", b"/house/search?env=prod", None).unwrap();
+        request = RequestHeader::build("GET", b"/api/house/search?env=prod", None).unwrap();
         assert_eq!(selected_namespace(&request, Some("canary")), None);
         request.insert_header("X-Alisten-Env", "canary").unwrap();
         assert_eq!(selected_namespace(&request, Some("canary")), Some("canary"));

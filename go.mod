@@ -4,8 +4,6 @@ go 1.27
 
 require (
 	github.com/RomiChan/protobuf v0.1.1-0.20261021154631-409b38a92f22
-	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/korandiz/mpa v1.0.0
@@ -13,8 +11,6 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	golang.org/x/sync v0.16.0
 	golang.org/x/sys v0.35.0
-	golang.org/x/time v0.13.0
-	golang.org/x/tools v0.35.0
 )
 
 require (

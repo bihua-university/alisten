@@ -1,5 +1,5 @@
 import type { MusicSearchSelection, SearchResult } from '@/types'
-import type { Playlist, Song as ProtocolSong } from '@/types/ws-protocol'
+import type { Playlist, Song as ProtocolSong } from '@/types/livehouse-protocol'
 import { ArrowLeft, ArrowRight, CirclePlus, Clock3, Search, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '@/hooks/use-store'
@@ -7,6 +7,7 @@ import { historyStore } from '@/stores/history-store'
 import { playerStore } from '@/stores/player-store'
 import { searchStore } from '@/stores/search-store'
 import { websocketStore } from '@/stores/websocket-store'
+import { searchMusic as searchMusicAPI, searchPlaylists as searchPlaylistsAPI } from '@/utils/api'
 import { SongArtwork } from './song-artwork'
 import { SongList } from './song-list'
 import { Artwork, AsyncIconButton, EmptyState, IconButton, Skeleton } from './ui'
@@ -61,7 +62,7 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
   }, [])
 
   const search = useCallback(async (nextPage = 1) => {
-    if (!query.trim() || !connected)
+    if (!query.trim())
       return
     const requestId = ++seq.current
     setBusy(true)
@@ -75,8 +76,8 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
     historyStore.addToSearchHistory(query, source, mode)
     const data = { keyword: query.trim(), source, pageIndex: nextPage, pageSize: searchStore.state.pageSize }
     const [songsResponse, playlistsResponse] = await Promise.allSettled([
-      mode === 'playlist' ? Promise.resolve(null) : websocketStore.request('music.search', data),
-      mode === 'song' ? Promise.resolve(null) : websocketStore.request('playlist.search', data),
+      mode === 'playlist' ? Promise.resolve(null) : searchMusicAPI(data),
+      mode === 'song' ? Promise.resolve(null) : searchPlaylistsAPI(data),
     ])
     if (requestId !== seq.current)
       return
@@ -92,14 +93,14 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
       : [])
     setError([...new Set(failures)].join('；'))
     setBusy(false)
-  }, [query, mode, source, connected])
+  }, [query, mode, source])
 
   useEffect(() => {
-    if (initialSearch && connected && consumedInitial.current !== initialSearch.id) {
+    if (initialSearch && consumedInitial.current !== initialSearch.id) {
       consumedInitial.current = initialSearch.id
       void search()
     }
-  }, [initialSearch, search, connected])
+  }, [initialSearch, search])
 
   const refine = (nextMode: SearchMode, nextSource = source) => {
     // Inside an opened playlist the fields keep the typed keyword, so a playlist search looks that
@@ -113,8 +114,6 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
     })
   }
   const recommend = async () => {
-    if (!connected)
-      return
     const requestId = ++seq.current
     setAi(true)
     setBusy(true)
@@ -139,7 +138,7 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
           onSubmit={(e) => {
             e.preventDefault()
             const keyword = draft.trim()
-            if (connected && keyword)
+            if (keyword)
               onSearch({ keyword, mode: ai ? 'all' : mode, source })
           }}
         >
@@ -148,7 +147,6 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
             value={draft}
             aria-label="搜索音乐"
             placeholder="歌手、歌曲或歌单"
-            disabled={!connected}
             onChange={e => setDraft(e.target.value)}
           />
           {draft && (
@@ -168,7 +166,7 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
               {value === 'all' ? '全部' : value === 'song' ? '歌曲' : '歌单'}
             </button>
           ))}
-          <button type="button" className="search-chip text-ui-caption" aria-pressed={ai} disabled={!connected || (busy && ai)} onClick={() => void recommend()}>
+          <button type="button" className="search-chip text-ui-caption" aria-pressed={ai} disabled={busy && ai} onClick={() => void recommend()}>
             <Sparkles size={14} aria-hidden="true" />
             个性化推荐
           </button>
@@ -195,10 +193,10 @@ export default function SearchPage({ initialQuery, initialSearch, onSearch }: {
       {error && (
         <div className="search-error" role="alert">
           <p className="error-text text-ui-caption">{error}</p>
-          <button type="button" className="button-secondary" disabled={!connected || busy} onClick={() => void search()}>重试</button>
+          <button type="button" className="button-secondary" disabled={busy} onClick={() => void search()}>重试</button>
         </div>
       )}
-      {!connected && <p className="text-ui-caption muted">加入房间并连接服务器后，即可搜索和点歌。</p>}
+      {!connected && <p className="text-ui-caption muted">搜索与推荐可直接使用；连接房间后即可点歌。</p>}
       {busy
         ? (
             <div className={`search-loading${mode === 'all' && !ai ? ' search-loading-overview' : ''}`} role="status" aria-label="搜索中">

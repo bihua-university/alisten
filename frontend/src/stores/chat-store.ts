@@ -1,5 +1,5 @@
 import type { ChatMessage, User } from '@/types'
-import type { MembersData } from '@/types/ws-protocol'
+import type { MembersData } from '@/types/livehouse-protocol'
 import { adaptProtocolUser, processUser } from '@/utils/user'
 import { notificationStore } from './notification-store'
 import { Store } from './store-base'

@@ -82,7 +82,7 @@ class UserSettingsStore extends Store<UserSettingsState> {
       return true
     const clientTimeMs = Date.now()
     try {
-      const res = await websocketStore.request('user.update', {
+      const res = await websocketStore.request('member.update', {
         name: profile.name,
         email: profile.email,
         clientTimeMs,

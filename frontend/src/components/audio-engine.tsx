@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { chatStore } from '@/stores/chat-store'
 import { historyStore } from '@/stores/history-store'
 import { mediaSessionStore } from '@/stores/media-session-store'
 import { notificationStore } from '@/stores/notification-store'
@@ -63,10 +62,6 @@ export function AudioEngine() {
         outageNotified = false
         notificationStore.connectionSuccess()
         void userSettingsStore.syncUserSettings()
-        void userSettingsStore.pullSetting()
-        void playerStore.requestMusicSync()
-        void playerStore.refreshQueue()
-        void chatStore.refreshOnlineUsers()
       } else if (
         (status === 'error' || status === 'reconnecting')
         && !outageNotified
