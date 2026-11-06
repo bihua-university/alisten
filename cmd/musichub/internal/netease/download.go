@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bihua-university/alisten/cmd/musichub/internal/utils"
+	"github.com/bihua-university/alisten/internal/logx"
 	"github.com/tidwall/gjson"
 )
 
@@ -19,6 +20,7 @@ import (
 type DownloadInfo struct {
 	URL  string
 	Gain *float64
+	md5  string
 }
 
 var errEAPITemporaryRejection = errors.New("netease EAPI temporarily rejected the request (-460)")
@@ -31,20 +33,31 @@ func (c *Client) GetDownloadURL(songID string) (string, error) {
 
 // GetDownloadInfo 优先使用 EAPI，并保留 WeAPI 回退。
 func (c *Client) GetDownloadInfo(songID string) (DownloadInfo, error) {
-	if info, err := c.tryEAPIQualities(songID, "exhigh"); err == nil && info.URL != "" {
+	info, eapiErr := c.getEAPIDownloadURL(songID, "exhigh")
+	if eapiErr == nil {
+		if info.md5 != "" && info.Gain != nil {
+			c.cache.Add("gain:"+info.md5, []byte(strconv.FormatFloat(*info.Gain, 'g', -1, 64)))
+		}
 		return info, nil
 	}
-	return c.getWeapiDownloadURL(songID)
-}
-
-func (c *Client) tryEAPIQualities(songID string, qualities ...string) (DownloadInfo, error) {
-	for _, q := range qualities {
-		info, err := c.getEAPIDownloadURL(songID, q)
-		if err == nil && info.URL != "" {
-			return info, nil
+	info, err := c.getWeapiDownloadURL(songID)
+	if err != nil {
+		return info, err
+	}
+	// WeAPI 的 gain: 0 可能只是占位值，不能覆盖已知的 EAPI 增益。
+	// 仅复用同一音频文件的结果，避免不同音质或版本之间串用。
+	if info.Gain == nil || *info.Gain == 0 {
+		info.Gain = nil
+		if info.md5 != "" {
+			if cached, ok := c.cache.Get("gain:" + info.md5); ok {
+				if gain, parseErr := strconv.ParseFloat(string(cached), 64); parseErr == nil {
+					info.Gain = &gain
+				}
+			}
 		}
 	}
-	return DownloadInfo{}, errors.New("no eapi quality available")
+	logx.Infof("netease playback fallback: song=%s gain_available=%t eapi_error=%v", songID, info.Gain != nil, eapiErr)
+	return info, nil
 }
 
 func (c *Client) getWeapiDownloadURL(songID string) (DownloadInfo, error) {
@@ -60,7 +73,11 @@ func (c *Client) getWeapiDownloadURL(songID string) (DownloadInfo, error) {
 
 func (c *Client) getEAPIDownloadURL(songID, quality string) (DownloadInfo, error) {
 	for attempt := 0; ; attempt++ {
-		info, err := c.requestEAPIDownloadURL(songID, quality)
+		endpoint := downloadEAPI
+		if attempt == 1 {
+			endpoint = strings.Replace(downloadEAPI, "interfacepc.", "interface3.", 1)
+		}
+		info, err := c.requestEAPIDownloadURL(songID, quality, endpoint)
 		if !errors.Is(err, errEAPITemporaryRejection) || attempt >= 2 {
 			return info, err
 		}
@@ -69,7 +86,7 @@ func (c *Client) getEAPIDownloadURL(songID, quality string) (DownloadInfo, error
 	}
 }
 
-func (c *Client) requestEAPIDownloadURL(songID, quality string) (DownloadInfo, error) {
+func (c *Client) requestEAPIDownloadURL(songID, quality, endpoint string) (DownloadInfo, error) {
 	idNum, err := strconv.Atoi(songID)
 	if err != nil {
 		return DownloadInfo{}, fmt.Errorf("invalid song id: %w", err)
@@ -89,7 +106,7 @@ func (c *Client) requestEAPIDownloadURL(songID, quality string) (DownloadInfo, e
 		payload["encodeType"] = "flac"
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	params := encryptEApi(downloadEAPI, string(payloadBytes))
+	params := encryptEApi(endpoint, string(payloadBytes))
 
 	form := url.Values{}
 	form.Set("params", params)
@@ -100,7 +117,7 @@ func (c *Client) requestEAPIDownloadURL(songID, quality string) (DownloadInfo, e
 	}
 	// 使用独立的 EAPI 请求头，避免混入浏览器 UA 和随机转发 IP。
 	client := utils.Client{}
-	body, err := client.Post(downloadEAPI, strings.NewReader(form.Encode()), http.Header{
+	body, err := client.Post(endpoint, strings.NewReader(form.Encode()), http.Header{
 		"Content-Type": {"application/x-www-form-urlencoded"},
 		"User-Agent":   {"NeteaseMusic 9.0.90/5038 (iPhone; iOS 16.2; zh_CN)"},
 		"Cookie":       {strings.Join(cookies, "; ")},
@@ -142,7 +159,7 @@ func (c *Client) eapiHeader() map[string]string {
 
 func parseDownloadInfo(body []byte) (DownloadInfo, error) {
 	data := gjson.ParseBytes(body).Get("data.0")
-	info := DownloadInfo{URL: data.Get("url").String()}
+	info := DownloadInfo{URL: data.Get("url").String(), md5: data.Get("md5").String()}
 	if strings.TrimSpace(info.URL) == "" {
 		return DownloadInfo{}, errors.New("download url not found (might be vip or copyright restricted)")
 	}
