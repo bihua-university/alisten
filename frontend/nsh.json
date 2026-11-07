@@ -1,0 +1,27 @@
+{
+  "name": "同频",
+  "id": "io.github.bihua_university.alisten",
+  "version": "0.0.1",
+  "build": 1,
+  "icon": "icon.png",
+  "appearance": "dark",
+  "statusBar": {
+    "foreground": "light"
+  },
+  "resolve": {
+    "alias": {
+      "@": "./src"
+    }
+  },
+  "capabilities": {
+    "network": {
+      "hosts": ["*"]
+    },
+    "host": ["app.*", "legacyStorage.*", "media.*"],
+    "statusBar": true
+  },
+  "web": {
+    "host": "./host.js",
+    "connect": ["*"]
+  }
+}

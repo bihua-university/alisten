@@ -1,26 +1,12 @@
 {
+  "extends": "./.nsh/tsconfig.json",
   "compilerOptions": {
-    "target": "ES2020",
-    "jsx": "react-jsx",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "useDefineForClassFields": false,
-    "baseUrl": ".",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["src/*"]
-    },
-    "resolveJsonModule": true,
-    "types": ["node", "vite-plugin-pwa/client"],
-    "allowImportingTsExtensions": true,
-    "strict": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noEmit": true,
-    "isolatedModules": true,
-    "skipLibCheck": true
+      "nsh": ["./.nsh/types/nsh/index.d.ts"],
+      "nsh/*": ["./.nsh/types/nsh/*.d.ts"],
+      "*": ["./.nsh/types/*.d.ts"],
+      "@/*": ["./src/*"]
+    }
   },
-  "references": [{ "path": "./tsconfig.node.json" }],
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx"]
+  "include": ["App.tsx", "src/**/*.ts", "src/**/*.tsx"]
 }

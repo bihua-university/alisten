@@ -136,9 +136,15 @@ func (h *handler) pickMusic(w http.ResponseWriter, r *http.Request) {
 	}
 	track := Track{
 		Playable: PlayableSong{
-			ID: id, Source: request.Source, Name: song.Name, Artist: song.Artist,
-			Album: song.Album, DurationMS: max(song.Duration, 0), PictureURL: song.PictureUrl,
-			WebURL: song.WebUrl, URL: "", Lyric: song.Lyric,
+			ID: id, Source: request.Source,
+			Name:       song.Name,
+			Artist:     song.Artist,
+			Album:      song.Album,
+			DurationMS: max(song.Duration, 0),
+			PictureURL: song.PictureUrl,
+			WebURL:     song.WebUrl,
+			URL:        "",
+			Lyric:      song.Lyric,
 		},
 		User: user, Likes: 0, Voters: []string{},
 	}
@@ -152,8 +158,11 @@ func (h *handler) pickMusic(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) performMusicSearch(ctx context.Context, request SearchRequest) (pb.MusicResult, error) {
 	option := &pb.SearchRequest{
-		Id: request.ID, Source: int32(music.ParseSource(request.Source)), Keyword: request.Keyword,
-		Page: request.Page, PageSize: request.PageSize,
+		Id:       request.ID,
+		Source:   int32(music.ParseSource(request.Source)),
+		Keyword:  request.Keyword,
+		Page:     request.Page,
+		PageSize: request.PageSize,
 	}
 	if strings.HasPrefix(request.Keyword, "*") {
 		option.Id = strings.TrimPrefix(request.Keyword, "*")
@@ -183,8 +192,13 @@ func (h *handler) searchMusic(w http.ResponseWriter, r *http.Request) {
 
 func protocolSongFromMusic(song *pb.Music) ProtocolSong {
 	return ProtocolSong{
-		ID: song.Id, Source: sourceName(song.Source), Name: song.Name, Artist: song.Artist,
-		Album: song.Album, DurationMS: max(song.Duration, 0), PictureURL: song.Cover,
+		ID:         song.Id,
+		Source:     sourceName(song.Source),
+		Name:       song.Name,
+		Artist:     song.Artist,
+		Album:      song.Album,
+		DurationMS: max(song.Duration, 0),
+		PictureURL: song.Cover,
 	}
 }
 
@@ -194,8 +208,10 @@ func (h *handler) searchPlaylists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.music.Playlists(r.Context(), &pb.SearchRequest{
-		Source: int32(music.ParseSource(request.Source)), Keyword: request.Keyword,
-		Page: request.Page, PageSize: request.PageSize,
+		Source:   int32(music.ParseSource(request.Source)),
+		Keyword:  request.Keyword,
+		Page:     request.Page,
+		PageSize: request.PageSize,
 	})
 	if err != nil {
 		h.writeProviderError(w, err)
@@ -205,9 +221,15 @@ func (h *handler) searchPlaylists(w http.ResponseWriter, r *http.Request) {
 	for _, playlist := range result.Data {
 		if playlist != nil {
 			items = append(items, Playlist{
-				ID: playlist.Id, Source: request.Source, Name: playlist.Name,
-				PictureURL: playlist.PictureUrl, Description: playlist.Desc, Creator: playlist.Creator,
-				CreatorID: playlist.CreatorUid, PlayCount: playlist.PlayCount, SongCount: playlist.SongCount,
+				ID:          playlist.Id,
+				Source:      request.Source,
+				Name:        playlist.Name,
+				PictureURL:  playlist.PictureUrl,
+				Description: playlist.Desc,
+				Creator:     playlist.Creator,
+				CreatorID:   playlist.CreatorUid,
+				PlayCount:   playlist.PlayCount,
+				SongCount:   playlist.SongCount,
 			})
 		}
 	}
@@ -248,8 +270,14 @@ func (h *handler) recommendMusic(w http.ResponseWriter, r *http.Request) {
 			song, err := h.music.Load(r.Context(), &pb.SongRequest{Source: "netease", Id: recommendedID, UseCache: true})
 			if err == nil && song != nil {
 				items = append(items, ProtocolSong{
-					ID: recommendedID, Source: "netease", Name: song.Name, Artist: song.Artist,
-					Album: song.Album, DurationMS: max(song.Duration, 0), PictureURL: song.PictureUrl, WebURL: song.WebUrl,
+					ID:         recommendedID,
+					Source:     "netease",
+					Name:       song.Name,
+					Artist:     song.Artist,
+					Album:      song.Album,
+					DurationMS: max(song.Duration, 0),
+					PictureURL: song.PictureUrl,
+					WebURL:     song.WebUrl,
 				})
 			}
 		}
@@ -290,9 +318,16 @@ func (h *handler) resolveMusic(w http.ResponseWriter, r *http.Request) {
 			return PlayableSong{}, errors.New("无法获取最新播放地址")
 		}
 		resolved := PlayableSong{
-			ID: request.ID, Source: request.Source, Name: song.Name, Artist: song.Artist,
-			Album: song.Album, DurationMS: max(song.Duration, 0), PictureURL: song.PictureUrl,
-			WebURL: song.WebUrl, URL: song.Url, Lyric: song.Lyric,
+			ID:         request.ID,
+			Source:     request.Source,
+			Name:       song.Name,
+			Artist:     song.Artist,
+			Album:      song.Album,
+			DurationMS: max(song.Duration, 0),
+			PictureURL: song.PictureUrl,
+			WebURL:     song.WebUrl,
+			URL:        song.Url,
+			Lyric:      song.Lyric,
 		}
 		if song.Gain.IsSome() {
 			gain := song.Gain.Unwrap()

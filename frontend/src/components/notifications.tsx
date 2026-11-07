@@ -1,102 +1,63 @@
-import { CheckCircle2, CircleAlert, Info, TriangleAlert, X } from 'lucide-react'
+import type { IconName } from './icon'
+import { effect, Overlay, safeAreaInsets, signal, Text, View, windowSize } from 'nsh'
 import { useStore } from '@/hooks/use-store'
 import { notificationStore } from '@/stores/notification-store'
 import { playerStore } from '@/stores/player-store'
-import { pwaStore } from '@/stores/pwa-store'
-import { IconButton, Modal } from './ui'
+import { brand, compact, font, foreground, muted, success, warning } from '@/theme'
+import { Icon } from './icon'
+import { IconButton, Modal, TextButton } from './ui'
 
-const notificationIcons = {
-  success: CheckCircle2,
-  error: CircleAlert,
-  warning: TriangleAlert,
-  info: Info,
+const notificationIcons: Record<string, IconName> = {
+  success: 'CheckCircle2',
+  error: 'AlertCircle',
+  warning: 'AlertTriangle',
+  info: 'Info',
 }
 
 export function Notifications() {
-  const notifications = useStore(notificationStore, s => s.notifications)
+  const notifications = useStore(notificationStore, state => state.notifications)
+  const mobile = compact
+  const insets = safeAreaInsets()
   return (
-    <div className="notifications" aria-label="通知">
-      {notifications
-        .filter(n => n.show)
-        .map((item) => {
-          const Icon = notificationIcons[item.type || 'info']
-          return (
-            <div
-              key={item.id}
-              className={`toast toast-${item.type || 'info'}`}
-              role={item.type === 'error' ? 'alert' : 'status'}
-            >
-              <Icon size={20} aria-hidden="true" />
-              <p className="text-ui-base">{item.message}</p>
-              <IconButton
-                icon={X}
-                label="关闭通知"
-                onClick={() => notificationStore.hide(item.id)}
-              />
-            </div>
-          )
-        })}
-    </div>
+    <Overlay style={{ position: 'fixed', top: insets().top + (mobile() ? 76 : 88), left: '50%', width: Math.min(420, Math.max(0, windowSize().width - 32)), maxHeight: Math.max(0, windowSize().height - 160), translate: ['-50%', 0], gap: 8, pointerEvents: 'none', zIndex: 100 }}>
+      <Each of={notifications().filter(item => item.show)} key={item => item.id}>
+        {item => (
+          <View
+            accessibilityLabel={item().message}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: '#333337', borderRadius: 16, backgroundColor: '#303034', boxShadow: '0 8px 24px rgba(0,0,0,0.24)', pointerEvents: 'auto' }}
+          >
+            <Icon name={notificationIcons[item().type || 'info']} color={item().type === 'error' ? '#ff929a' : item().type === 'success' ? success : item().type === 'warning' ? warning : brand} />
+            <Text style={[font(), { color: foreground, flex: 1, minWidth: 0 }]}>{item().message}</Text>
+            <IconButton icon="X" label="关闭通知" onPress={() => notificationStore.hide(item().id)} />
+          </View>
+        )}
+      </Each>
+    </Overlay>
   )
 }
 
-export function SystemPrompts() {
-  const manual = useStore(playerStore, s => s.needManualStartPlay)
-  const update = useStore(pwaStore, s => s.showUpdateModal)
-  const closeManual = () => playerStore.clearManualStartPlay()
-  if (manual) {
-    return (
-      <Modal title="音乐已就绪" onClose={closeManual}>
-        <p className="text-ui-base muted">
-          浏览器需要你点击一次，才能开始播放音乐。
-        </p>
-        <div className="dialog-actions">
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={closeManual}
-          >
-            稍后播放
-          </button>
-          <button
-            type="button"
-            className="button-primary"
-            onClick={async () => {
-              closeManual()
-              await playerStore.onCanPlay()
-            }}
-          >
-            开始播放
-          </button>
-        </div>
+export function SystemPrompts(props: { enabled: boolean }) {
+  const manual = useStore(playerStore, state => state.needManualStartPlay)
+  const dismissed = signal(false)
+  const close = () => dismissed.set(true)
+  effect(() => {
+    if (!manual())
+      dismissed.set(false)
+  })
+  return (
+    <If when={props.enabled && manual() && !dismissed()}>
+      <Modal title="音乐已就绪" onClose={close}>
+        <View style={{ gap: 24 }}>
+          <Text style={[font(), { color: muted }]}>浏览器需要你点击一次，才能开始播放音乐。</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+            <TextButton title="稍后播放" variant="secondary" onPress={close} />
+            <TextButton
+              title="开始播放"
+              onPress={() => void playerStore.onCanPlay()}
+            />
+          </View>
+        </View>
       </Modal>
-    )
-  }
-  if (update) {
-    return (
-      <Modal
-        title="新版本已就绪"
-        onClose={() => pwaStore.handleDismissUpdate()}
-      >
-        <p className="text-ui-base muted">更新后将重新加载应用并连接房间。</p>
-        <div className="dialog-actions">
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => pwaStore.handleDismissUpdate()}
-          >
-            稍后再说
-          </button>
-          <button
-            type="button"
-            className="button-primary"
-            onClick={() => pwaStore.handleUpdateApp()}
-          >
-            立即更新
-          </button>
-        </div>
-      </Modal>
-    )
-  }
-  return null
+    </If>
+  )
 }

@@ -1,6 +1,6 @@
 # Alisten UI Design and Engineering Guidelines
 
-This document describes the page structure, visual parameters, interactions, and performance constraints of the current React implementation. Update the relevant sections whenever the implementation changes so that the documentation stays aligned with the code.
+This document describes the page structure, visual parameters, interactions, and performance constraints of the current Native Shell (NSH) implementation. Update the relevant sections whenever the implementation changes so that the documentation stays aligned with the code.
 
 ## 1. Product and Design Direction
 
@@ -35,11 +35,11 @@ Flexible areas in layouts with multiple columns must set `min-width: 0` and `min
 From left to right: More, Back, and Forward navigation buttons; Home and the search field; connection status and the user avatar. Back and Forward navigate the application's page history and are disabled at its boundaries.
 
 - Home returns to the listening page after joining a room, or opens room discovery before joining.
-- While on the home page, keep the top Home icon highlighted in brand green and set `aria-current="page"`. Restore its normal color on other pages.
+- While on the home page, keep the top Home icon highlighted in brand green and expose its selected accessibility state. Restore its normal color on other pages.
 - Connection status indicates not joined, connecting, synchronized online, or reconnecting. After joining, a disconnected status can be clicked to retry.
 - The More menu contains Listening, Playlist, Room Chat, Playback History, Discover Rooms, Settings, Share Room, and Help.
 - Place Home immediately to the left of search. Share Room is available only in the More menu. Chat and playlist shortcuts belong in the bottom player; the avatar opens personal settings.
-- Use native `details` for the More menu. Close it after selecting an item, moving focus outside, or pressing Escape.
+- Use an anchored NSH `Overlay` for the More menu. Close it after selecting an item, pressing outside, or pressing Escape / Back.
 - The top bar's solid black styling applies to the bar itself. The search field, popover, and menu retain their own shapes and surface hierarchy.
 
 ### Search Entry Point
@@ -81,9 +81,17 @@ Room discovery is the joining entry point before a room is entered. Present it a
 
 The panel is closed by default when joining a room. On desktop, open chat or the queue from the bottom player; clicking the same entry again closes it. If that content is already displayed as the main page, clicking again returns to the listening page.
 
+Room joining keeps the password dialog visible while connecting, disables duplicate submissions, and enters the listening page only after the WebSocket opens. A failed initial join stays in the dialog with a retryable error and does not save the rejected password. Closing a pending join cancels that attempt; established room connections retain unlimited reconnects.
+
+Keep the room password input, validation error, and Join action together in a fixed dialog footer outside the scrolling room information. Reserve the measured header and footer heights when sizing the scroll area, so opening the keyboard does not require scrolling to reach the input or action. Focus the password field after the dialog finishes appearing, avoiding keyboard reveal calculations during the entrance animation. Apply the bottom safe area once, and omit its extra spacing while the keyboard is visible.
+
+Start clock calibration immediately on connection. Until the first measured clock sample arrives, use the snapshot's server timestamp to seed the offset before applying playback. Wait for the current audio source's load event before seeking to the room's current position and starting playback; compute that position at load completion so URL resolution and buffering time are included. Reconnect snapshots for an unchanged song reuse the loaded source and explicitly resynchronize, without waiting for another load event or reloading the audio. Ignore load events from replaced sources, and allow a failed source to be recreated even when resolving it returns the same URL.
+
 Opening and closing use a 240ms animation of width, a slight horizontal offset to the right, and opacity. Keep the inner content at a fixed width while the lyrics area adapts to the available width. Disable interaction during closing and unmount the content after the animation. Low performance mode retains only a 120ms fade; off and reduced motion switch immediately.
 
-Switching between the panel's queue, recently played, and chat views uses a phone-style push: the incoming view slides in from the right over the outgoing one, which recedes to the left and disappears under the panel's edge. Only that panel region moves: `view-transition-name: detail-panel-content` names it, its group is clipped to the panel so nothing spills into the lyrics area, and the root pair is frozen, so the header, main content, and player stay exactly where they are. Page switches never push and only fade (140ms for low), without movement. Opening or closing the panel from closed plays only the panel's own width animation. Where view transitions are unavailable, and in the low performance level, the incoming panel view slides 10px with a fade (140ms fade for low); off and reduced motion switch instantly.
+Switching between chat and the playlist fades only the inner panel content: fade out over the first 30% of a 220ms transition, replace the view, then ease out to full opacity. Keep the panel shell, width, main content, and player still; do not run layout or slide animations when switching between chat and the playlist. Queue and Recently Played use a shared 280ms horizontal slide: a brand-green underline matches the measured label width and smoothly changes its position and width between tabs while both content pages slide together in the corresponding direction. Keep the tab header fixed, clip the pages inside the panel, preserve each page's scroll position, and allow a new click to reverse the in-progress animation. Low performance mode shortens the slide and chat fade to 160ms; off and reduced motion switch instantly. Opening or closing the panel from closed plays only the panel's own opening/closing animation. Rapid switches cancel the previous transition so an older request cannot replace the latest view. Other page switches only fade, except the mobile bottom tabs described below.
+
+On mobile, switching between Listening, Queue, and Chat slides the content horizontally over 300ms in tab order. A tab to the right brings content in from the right as the previous page leaves to the left; reverse this when selecting a tab to the left. Keep the header, player, and bottom navigation stationary and clip the pages inside the content area. Use one native animated position and retarget it on rapid taps. Retain outgoing and crossed pages only during the transition, then release inactive pages. Inactive pages cannot receive touches or accessibility focus. Low performance mode shortens the slide to 160ms; off and reduced motion switch immediately. Back/Forward navigation between these tabs follows the same direction.
 
 - The queue and recently played panel has Queue, Recently Played, and Close controls at the top, without a song-request tab.
 - Open chat through its own shortcut and reuse the chat component. Do not show queue or recently played tabs above it. A single title row contains Room Chat, the online member count, and the panel close button.
@@ -115,17 +123,21 @@ With the default 28px base size, the apparent sizes are approximately 33 / 22 / 
 
 ### Transitions and Scrolling
 
-- Scale and translation transitions: 420ms, `cubic-bezier(.2, .8, .2, 1)`.
-- Color and opacity transitions: 300ms, `ease`.
+- Scale, translation, color, and opacity share one native `AnimatedValue` across all lyric rows, with per-row start/end interpolation and a 420ms native timing curve. No JavaScript runs per animation frame.
+- First alignment sets the shared value immediately; subsequent index changes animate only the affected rows.
 - After the lyric index changes, the Store coalesces centering scroll updates with rAF. Scroll smoothly in normal mode; position immediately on first alignment and container size changes.
-- Use `ResizeObserver` to handle panel toggles, window resizing, and wrapping-induced position changes.
-- Hide scrollbars. Use transparent masks at the top and bottom, with the fully visible region beginning at 12% and ending at 88%.
-- Set `aria-current="true"` on the current line. Show an icon, explanation, and empty state when lyrics are unavailable.
-- Blank timestamp entries participate only in synchronization; they create no DOM nodes and occupy no line height. During blank sections, remove the current-line highlight, keep the preceding and following lines at the slightly enlarged adjacent-line scale, and center automatically at the boundary. Reserve centering scroll space only at the beginning and end of the container.
-- Update classes and attributes only on the old current line, the new current line, and their neighbors. Do not rebuild the lyric tree on every progress update.
+- On Web, lyric emphasis uses CSS transitions. Android and other native platforms use a shared animated value whose graph plays on the UI thread, without a JavaScript frame loop. Low performance mode animates only opacity; off and reduced motion switch immediately.
+- Android defaults to balanced performance so native lyric scaling and smooth centering are enabled on first launch; saved user choices still take precedence. Repeated layout callbacks with unchanged dimensions must not interrupt a smooth lyric scroll with immediate recentering.
+- Use NSH `onLayout` measurements to handle panel toggles, window resizing, and wrapping-induced position changes.
+- Hide scrollbars with `scrollbar={false}`. Use static, pointer-transparent gradient overlays at the top and bottom instead of an animated full-viewport mask; the fully visible region begins at 12% and ends at 88%.
+- Expose the current line through its selected accessibility state. Show an icon, explanation, and empty state when lyrics are unavailable.
+- Blank timestamp entries participate only in synchronization; they create no native text views and occupy no line height. During blank sections, remove the current-line highlight, keep the preceding and following lines at the slightly enlarged adjacent-line scale, and center automatically at the boundary. Reserve centering scroll space only at the beginning and end of the container.
+- Update styles and accessibility state through targeted signal bindings instead of reconstructing the lyric tree on every progress update.
 - Follow the performance guidelines for low, off, and reduced motion. Preserve the size and highlight hierarchy when animations are disabled.
 
 ## 4. Bottom Player
+
+Mobile reference update: bottom navigation is Listening / Search / Queue / Chat, with directional transitions in that order. The top Home and Search shortcuts are desktop-only; on mobile retain More, Back, room identity/connection status, and profile. Reserve equal space on the left and right so the room name centers relative to the screen, truncating long names. The mini-player uses a 56px cover, a larger song title (base font + 4px), 12px corners, 8px side margins, a content-driven minimum height of 82px, and a solid muted blue-green #203d43 fill while a song is present (#24282a when empty). Hide elapsed/total time on mobile; keep the 3px progress line spanning the card's bottom edge. Vote to Skip is an 18px bare icon without a circle, border, or background, retaining a 44px touch target. Do not add headphones, Bluetooth/device controls, or local playback buttons. These mobile rules supersede the earlier mini-player dimensions below; desktop styling remains unchanged.
 
 Use a horizontal layout: cover on the left, song information and a wide progress bar in the middle, and skip voting, volume, and auxiliary shortcuts on the right.
 
@@ -141,13 +153,13 @@ Use a horizontal layout: cover on the left, song information and a wide progress
 - Playback synchronizes automatically with the room, without a manual sync button. Settings in the More menu opens the application's settings page.
 - NetEase Cloud Music Cookie settings are hidden by default. Reveal and scroll to them after 7 consecutive activations of the settings page title, with no more than 2 seconds between adjacent activations. Support keyboard activation too. Unlocking lasts only for the current settings page visit and is not persisted; leaving and returning requires unlocking again.
 - With no song, display a music placeholder icon, no-song and unknown-artist labels, and zero progress.
-- On mobile the player becomes a floating mini-player card: 6px vertical and 8px horizontal margins, an 8px radius, an elevated `--color-surface` fill on the black frame, and a height driven by its content instead of a fixed row. Keep the cover, title, artist, elapsed / total time, the 2px progress line, and Vote to Skip; volume and auxiliary shortcuts stay hidden.
+- On mobile the player is a floating card with 8px horizontal margins, a 12px radius, and a content-driven minimum height of 68px. Use 6px vertical and 8px horizontal inner padding. Keep the 56px cover, 18px skip icon, and 44px button target unchanged; reduce the card's surrounding space rather than scaling its contents. Show the title, artist, and a 3px bottom progress line; hide timestamps, volume, and auxiliary shortcuts.
 
 ## 5. Colors, Themes, and Surfaces
 
 Default to dark mode, with light and system-following options. Switch themes through root `data-theme` and semantic CSS variables, persisting the choice in appearance settings.
 
-The top bar, its menus and search popover, and the bottom player retain local dark variables, so the top and bottom bars remain black with light text in light mode. The main content and right panel backgrounds always use `#121212`, with local dark variables for readable text and controls. The settings page and standalone dialogs continue to follow the selected theme.
+The top bar, its menus and search popover, and the bottom player retain local dark variables, so the top and bottom bars remain black with light text in light mode. The main content, right panel, and settings page backgrounds always use `#121212`, with local dark variables for readable text and controls. Settings groups use `#1F1F1F` backgrounds. Standalone dialogs continue to follow the selected theme.
 
 | Purpose / Token | Dark | Light |
 | --- | --- | --- |
@@ -169,18 +181,20 @@ The top bar, its menus and search popover, and the bottom player retain local da
 | Subtle accent `--color-accent` | `#203320` | `#e7f6e7` |
 | Toast `--color-toast` | `#303034` | `#ffffff` |
 
-- Treat the variables and local overrides in `src/style.css` as authoritative. Do not infer the current structure from legacy token names; for example, `--color-sidebar` does not imply a left sidebar exists.
-- Standard components use semantic variables. Do not add ad hoc colors or legacy Tailwind blue and purple colors as new brand accents.
-- Card surfaces on the discovery pages are the exception that documents itself: `--color-search-card` and `--color-room-card` are page-local and fixed at `#181818`, because the main content panel keeps the dark palette in every theme. Reuse one of them instead of adding another hex value.
+- Treat the semantic constants and `palette()` in `src/theme.ts` as authoritative. The CSS variable names below remain the design-token names; NSH applies them through typed styles rather than a global stylesheet.
+- Standard components use semantic tokens. Do not add ad hoc colors or legacy Tailwind blue and purple colors as new brand accents.
+- Card surfaces on the discovery pages use the shared `card` token, fixed at `#181818`, because the main content panel keeps the dark palette in every theme.
 - Success, warning, and error colors communicate actual states only, without decorative use.
 - The no-border rule applies to the main content, right panel, and top and bottom bars. Inputs, popovers, dialogs, cards, and subtle internal dividers retain necessary boundaries; define them with surface color before reaching for a border.
 - Do not layer backdrop blur onto large panels, the lyrics container, or every chat bubble. Covers and floating surfaces may use local shadows.
 
 ## 6. Typography, Controls, and Content Density
 
-Use the system font stack `-apple-system, BlinkMacSystemFont, Segoe UI, Microsoft YaHei, sans-serif`, without blocking rendering on remote fonts. Import icons individually from `lucide-react`. Standard icon buttons use 20px icons with a 1.7 stroke width.
+Use the platform system font without blocking rendering on remote fonts. Icons are bundled SVG assets rendered by `src/components/icon.tsx`. Standard icon buttons use 20px icons with a 1.7 stroke width.
 
-UI typography must use `text-ui-*`, without Tailwind's default `text-sm`, `text-base`, `text-xs`, or ad hoc numeric font sizes. The user font setting changes only `--ui-font-size` (12–18px, default 14px), never the html root font size. Spacing, icons, and layout dimensions must not scale with this setting.
+The launcher icon is `icon.png`: a spring-green circular plate on a near-black square, containing two connected black musical notes with a green play cutout in the left notehead. The paired notes express listening together. Keep the mark free of text and fine details for small-size recognition. Web installation icons and the Android launcher icon are generated from this shared source; the image-generation prompt and visual reference are recorded in `icon.prompt.txt`.
+
+UI typography uses the `font(offset)` / `text(offset)` helpers and the `text-ui-*` names below as design tokens, not CSS classes. The user setting changes only the shared UI font signal (12–18px, default 14px), never the platform root font size. Spacing, icons, and layout dimensions must not scale with this setting.
 
 | Token | Formula | Default size | Usage |
 | --- | --- | --- | --- |
@@ -207,6 +221,7 @@ Editable mobile controls use the fixed `text-mobile-input-safe` size (16px) to p
 - Generic dialogs use native `dialog.showModal()` for an inert background, focus containment, and title association.
 - Standard dialog width is `min(480px, 100vw − 32px)`; wide dialogs use `min(760px, 100vw − 48px)`. Long content scrolls within the dialog while the title bar stays visible.
 - Escape, the close button, a backdrop click, or browser Back closes the current dialog. Restore the previous focus after closing.
+- Android dialogs subtract the reactive `keyboardFrame().height` from the available height and lift bottom sheets above the keyboard. Their scroll areas use `keyboardShouldPersistTaps="handled"` so actions respond on the first tap while editing.
 - At 767px and below, dialogs become bottom sheets: full viewport width, anchored to the bottom edge, a 16px top radius and square bottom corners, and a 240ms upward slide that low performance mode shortens to 120ms. Keep the title bar sticky, keep at least 16px of viewport height above the sheet, and add the bottom safe-area inset to the body padding. Sheet actions span the sheet width.
 - The top search popover is non-modal. Do not apply native modal focus trapping or an inert background.
 - Dropdown surfaces — the More menu, the search history popover, and the member popover — enter with a 200ms fade plus an 8px drop and a 0.96 scale from their anchor edge (`transform-origin` at the anchor corner). Because the native details slot keeps its content rendered while closed, key the More menu's animation off `[open]` so it replays on every open. Low performance mode keeps the 160ms fade without the transform; off and reduced motion switch instantly.
@@ -214,12 +229,16 @@ Editable mobile controls use the fixed `text-mobile-input-safe` size (16px) to p
 - Profile, appearance, playback, performance, history, and Cookie edits remain local page drafts until the shared bottom Save button updates Stores, local storage, and the server. Leaving the page discards unsaved drafts. Remove individual section save buttons. Cookie status queries only read status and do not save the token. Disable controls and duplicate submission while saving; retain failed items as drafts for retry.
 - Settings uses a single column of sections with rounded groups below section titles and fine internal dividers. Each row places its label and description on the left and control on the right; boolean options use switches. On mobile, place inputs and volume controls below descriptions. Preserve theme colors and brand-green accents.
 - Settings responds to its own container width. At widths of at most 640px, reduce padding and move inputs and volume controls below descriptions. Apply the same narrow layout when a desktop right panel is open. Keep the save area visible.
+- On narrow settings pages, stack every value control (including selects) below its label and description; keep only switches beside the text. Read the current container width reactively rather than capturing the first layout. Use a full-width Save button below the status message on mobile. Retain `#121212` for the page and `#1F1F1F` for setting groups.
+- Settings selects and the music-source picker share an anchored overlay. Keep it beside the trigger, flip it when needed, and constrain it to the viewport; do not use a native bottom selection sheet. Mobile triggers are at least 48px tall and option rows 60px tall with larger text, brand-green selection and a check mark. Long menus scroll internally. Outside press, Escape and Android Back close the overlay.
 - Center toasts below the top search bar, 88px from the viewport top on desktop and 76px on mobile, plus the top safe-area inset. Maximum width is 420px. Stack them from top to bottom in creation order. An oversized stack scrolls internally with hidden scrollbars. The search popover sits above notifications.
 - Asynchronous pages provide static skeletons, empty states, error messages, and retry actions as appropriate. Do not substitute continuous flashing for clear loading feedback.
 - Every icon action has a clear `aria-label`; inputs have labels and keyboard focus is visible. Do not communicate state through color alone.
 - Target WCAG AA text contrast. Check long song titles, nicknames, multiple languages, and the largest font setting.
 
 ## 8. Responsive Layout and Scrolling
+
+Read responsive widths inside reactive bindings so resizing and rotation update the main shell, player, lists, lyrics, dialogs and notifications. Mobile icon and text actions have at least 44px targets; inputs can shrink within rows and use at least 16px text. Search categories scroll horizontally inside their own strip. History controls wrap into separate rows on narrow screens, chat names truncate before timestamps, and the mini-player places time below song information instead of reserving part of the title line for it. Keep icons from shrinking and include the top safe area when placing notifications.
 
 | Viewport | Current adjustments |
 | --- | --- |
@@ -246,29 +265,37 @@ Prefer `100dvh` for viewport height and retain `--vh` as a fallback for older br
 
 ### Rendering and Resources
 
-- Use React + TypeScript and ordinary DOM. Keep external business state in EventTarget Stores without introducing another state framework.
-- Stores create new state snapshots. Subscribe through `useSyncExternalStore` and stable field selectors to avoid unrelated component renders.
-- Keep high-frequency progress, scrolling, and lyric indices out of continuously updated React state. Update progress `transform` through refs at approximately 10fps; update time text and progress accessibility values only when the whole second changes.
-- Locate the current lyric line with binary search and coalesce scrolling with rAF. Index changes update only the relevant DOM nodes.
-- Load pages and auxiliary dialogs on demand and import icons individually. Lazy-load covers with asynchronous decoding and show a music placeholder on failure.
-- Use `content-visibility` on song and history rows to reduce off-screen painting. Render chat and history in batches, without creating every item in a long list at once.
-- Clean up subscriptions, audio events, timers, rAF callbacks, and observers. Visual changes must not introduce continuous polling or frequent full-page updates.
+- Use NSH + TypeScript with native views. Keep external business state in EventTarget Stores without introducing another state framework.
+- Stores create new state snapshots. Subscribe through `useStore` and stable field selectors, which bridge snapshots to NSH signals and avoid unrelated native updates.
+- Keep high-frequency progress, scrolling, and lyric indices out of component reconstruction. Drive progress `scaleX` with a native `AnimatedValue` updated at most 30 times per second from media progress events; do not run continuous native timing or a JavaScript frame loop. Pause visual updates in the background and recalibrate on seeks, playback/buffering changes, or song changes. Update time text and progress accessibility values only when the whole second changes.
+- Locate the current lyric line with binary search and coalesce scrolling with rAF. Use `onLayout` measurements for centering instead of DOM queries or `ResizeObserver`.
+- Use bundled SVG icons and NSH's native image decoding/cache; show a music placeholder on failure.
+- Render chat and history in batches. Use NSH `List` for new long or unbounded lists instead of creating every row at once.
+- Clean up subscriptions, media events, timers, rAF callbacks, and layout registrations. Visual changes must not introduce continuous polling or frequent full-page updates.
 
 ### Motion Levels
 
 | Setting | Lyrics and visual behavior |
 | --- | --- |
 | `high` | Full scale, translation, color, and opacity transitions; smooth lyric centering; permitted local shadows and effects |
-| `medium` | Full lyric transitions; general blurred surfaces reduced to 8px; additional performance classes on mobile |
-| `low` | Immediate size and color changes, retaining only a 160ms opacity transition; immediate lyric centering; general blur reduced to 4px; remove cover shadows |
+| `medium` | Full lyric transitions with platform-appropriate local effects |
+| `low` | Immediate size and color changes, retaining only a short opacity transition; immediate lyric centering; remove cover shadows |
 | `off` | Disable animations, transitions, smooth scrolling, shadows, filters, and lyric masks; retain static size and highlight hierarchy |
-| Reduced motion | Disable transitions, animations, and smooth scrolling when enabled manually or requested by the system |
+| Reduced motion | Disable transitions, animations, and smooth scrolling when enabled manually or requested by the system through NSH `reduceMotion()` |
 
-The top bar and bottom player never use blur. General `.glass-surface` performance rules must not reintroduce it. New effects must cover every performance level and respect `prefers-reduced-motion`. Do not increase resource usage with permanent `will-change` or multiple large blurred layers.
+The top bar and bottom player never use blur. New effects must cover every performance level and respect `reduceMotion()`. Do not increase resource usage with permanent compositing hints or multiple large blurred layers.
 
 ### Playback, Protocol, and Data
 
-- Run the audio `canplay` initialization listener only once per source load, preventing seeks from triggering another synchronization and causing stutter.
+- Successful room joins authenticate first, close the controlled dialog, and enter the listening view only after the dialog reports it has closed. Keep the Dialog mounted while its `open` becomes false so dismissal can complete. Closing a pending join cancels the attempt; stale completions cannot navigate.
+- A new song or a new playback start resets lyric scrolling immediately, cancels pending centering and highlight motion, and aligns the new lyrics without carrying over the old song's progress. Reconnecting to the same playback keeps its state; normal line changes retain smooth following. Ignore progress callbacks from replaced or paused audio sources.
+- Key native lyric rows by index and text so changed lines remount and report measurements even when their height is unchanged. Centering needs measured rows only through the target (or the next visible line during a blank timestamp), without waiting for the rest of the song. Reuse valid measurements of unchanged text.
+
+- On mobile, the All search results preview at most four playlists in a fixed two-column grid (two rows when four results are available). Show All opens the full playlist results; desktop previews remain unchanged.
+
+- Search sections publish as soon as their own HTTP request finishes; a slow playlist request must not hide completed song results (or vice versa). Artwork reserves its space immediately and displays a local placeholder until that individual image loads. Each cover replaces its placeholder independently; missing or failed images retain the placeholder without blocking text, controls, or other covers. Do not preload a whole search page behind a shared image-ready barrier.
+
+- Run NSH `Video.onLoad` initialization only once per source load, preventing seeks from triggering another synchronization and causing stutter.
 - Repeated playback snapshots must not reload, seek, or restart playback. Explicit synchronization may recalibrate the same song. Wait for future start times; retain metadata for completed songs while keeping audio paused.
 - UI song durations use milliseconds, converting to seconds only for display or audio APIs. Preserve server clock offset and start-time synchronization.
 - Preserve unlimited WebSocket reconnection with exponential backoff, heartbeat clock calibration, and recovery on returning to the foreground or regaining the network. Do not repeatedly reconnect because heartbeat responses are absent.
@@ -279,16 +306,18 @@ The top bar and bottom player never use blur. General `.glass-surface` performan
 
 ## 10. Implementation Entry Points and Acceptance
 
+
 | Area | Entry points |
 | --- | --- |
-| Themes, font sizes, layout, and component styles | `src/style.css`, `src/stores/appearance-store.ts` |
+| Themes, font sizes, layout, and component styles | `src/theme.ts`, `src/stores/appearance-store.ts` |
 | Top navigation, page switching, and right panel | `src/app.tsx` |
 | Search entry and results | `src/components/header-search.tsx`, `src/components/search-page.tsx` |
 | Room discovery, joining, and room creation | `src/components/room-browser.tsx` |
 | Lyrics-only home page and synchronization | `src/components/listen-page.tsx`, `src/components/lyrics.tsx`, `src/stores/lyrics-store.ts` |
-| Bottom player | `src/components/player-bar.tsx` |
+| Bottom player and cross-platform audio | `src/components/player-bar.tsx`, `src/components/audio-engine.tsx` |
 | Shared controls, dialogs, and notifications | `src/components/ui.tsx`, `src/components/notifications.tsx` |
-| Performance levels | `src/styles/performance.css`, `src/stores/performance-store.ts` |
+| Performance levels | `src/stores/performance-store.ts`, `src/theme.ts` |
+| Web-only integration and storage migration | `host.js`, `src/utils/runtime.ts`, `src/utils/storage.ts` |
 
 Manually check UI changes in a real browser across dark and light themes, desktop and narrow screens, right-panel toggles, long text, font-size settings, keyboard operation, and reduced motion. Follow the testing rules in `AGENTS.md`: do not write UI or frontend unit tests, especially interface numeric or layout assertions. Changes to logic, types, or styles require at least `npm run type-check` and `npm run lint`. Changes affecting the build or dependencies require `npm run build`. Manually verify the relevant flows when changing playback, protocol behavior, or related interactions.
 

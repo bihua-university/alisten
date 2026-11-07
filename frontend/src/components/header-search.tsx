@@ -1,137 +1,97 @@
+import type { ViewRef } from 'nsh'
 import type { MusicSearchSelection } from '@/types'
-import { Clock, Search, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { createMotion, effect, Overlay, signal, Text, View } from 'nsh'
+import { Input } from 'nsh/base'
 import { useStore } from '@/hooks/use-store'
 import { historyStore } from '@/stores/history-store'
 import { websocketStore } from '@/stores/websocket-store'
+import { brand, font, foreground, inputBorder, muted, subtle } from '@/theme'
+import { Icon } from './icon'
 import { IconButton } from './ui'
 
-export function HeaderSearch({
-  initialQuery,
-  initialSearch,
-  open,
-  onOpenChange,
-  onSearch,
-}: {
-  initialQuery: string
+export function HeaderSearch(props: {
+  query: string
+  onQueryChange: (query: string) => void
   initialSearch?: MusicSearchSelection
   open: boolean
   onOpenChange: (open: boolean) => void
   onSearch: (selection: Omit<MusicSearchSelection, 'id'>) => void
 }) {
-  const [query, setQuery] = useState(initialQuery)
-  const [source] = useState<'netease' | 'qq'>(() => {
-    if (initialSearch)
-      return initialSearch.source
-    try {
-      return JSON.parse(
-        localStorage.getItem('music-modal-platform') || '"netease"',
-      ) === 'qq'
-        ? 'qq'
-        : 'netease'
-    } catch {
-      return 'netease'
+  let anchor: ViewRef | undefined
+  const connected = useStore(websocketStore, state => state.connectionStatus === 'connected')
+  const history = useStore(historyStore, state => state.searchHistory)
+  const enabled = useStore(historyStore, state => state.enableSearchHistory)
+  const popup = createMotion()
+  const anchorWidth = signal(0)
+  effect(() => {
+    if (props.open) {
+      void popup.play({
+        duration: 200,
+        keyframes: [
+          { opacity: 0, translateY: -8, scale: 0.96 },
+          { opacity: 1, translateY: 0, scale: 1 },
+        ],
+      })
     }
   })
-  const mode = initialSearch?.mode ?? 'all'
-  const ref = useRef<HTMLDivElement>(null)
-  const input = useRef<HTMLInputElement>(null)
-  const id = useId()
-  const connected = useStore(
-    websocketStore,
-    s => s.connectionStatus === 'connected',
-  )
-  const history = useStore(historyStore, s => s.searchHistory)
-  const enabled = useStore(historyStore, s => s.enableSearchHistory)
-  const showHistory = open && enabled && history.length > 0
-  useEffect(() => {
-    if (!open)
-      return
-    input.current?.focus()
-    const dismiss = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node))
-        onOpenChange(false)
-    }
-    document.addEventListener('pointerdown', dismiss)
-    return () => document.removeEventListener('pointerdown', dismiss)
-  }, [open, onOpenChange])
+  const source = () => props.initialSearch?.source ?? 'netease'
+  const mode = () => props.initialSearch?.mode ?? 'all'
   const submit = () => {
-    if (connected && query.trim())
-      onSearch({ keyword: query.trim(), source, mode })
+    if (connected() && props.query.trim())
+      props.onSearch({ keyword: props.query.trim(), source: source(), mode: mode() })
   }
   return (
-    <div
-      className="header-search"
-      ref={ref}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation()
-          onOpenChange(false)
-        }
-      }}
-    >
-      <form
-        className={`header-search-field ${open ? 'search-open' : ''}`}
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault()
-          submit()
-        }}
-      >
-        <Search size={22} strokeWidth={1.7} aria-hidden="true" />
-        <input
-          ref={input}
-          aria-label="搜索音乐"
-          aria-haspopup="dialog"
-          aria-expanded={showHistory}
-          aria-controls={showHistory ? id : undefined}
+    <View ref={anchor} onLayout={({ bounds }) => anchorWidth.set(bounds.size.width)} style={{ flex: 1, minWidth: 0 }}>
+      <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: props.open ? brand : inputBorder, borderRadius: 24, backgroundColor: '#1f1f1f' }}>
+        <Icon name="Search" size={22} />
+        <Input
+          accessibilityLabel="搜索音乐"
+          value={props.query}
+          onChange={({ value }) => props.onQueryChange(value)}
+          onFocus={() => props.onOpenChange(true)}
+          onSubmit={submit}
+          returnKeyType="search"
           placeholder="想播放什么？"
-          value={query}
-          onFocus={() => onOpenChange(true)}
-          onClick={() => onOpenChange(true)}
-          onChange={e => setQuery(e.target.value)}
+          style={{ flex: 1, color: foreground, placeholderColor: subtle, fontSize: font().fontSize }}
         />
-        {query && (
-          <IconButton
-            icon={X}
-            label="清空顶部搜索"
-            onClick={() => onSearch({ keyword: '', source, mode })}
-          />
-        )}
-      </form>
-      {showHistory && (
-        <div
-          className="search-popover"
-          role="dialog"
-          aria-label="搜索选项"
-          id={id}
+        <If when={props.query}>
+          <IconButton icon="X" label="清空顶部搜索" onPress={() => props.onSearch({ keyword: '', source: source(), mode: mode() })} />
+        </If>
+      </View>
+      <If when={props.open && enabled() && history().length > 0}>
+        <Overlay
+          anchor={anchor}
+          placement="bottom"
+          align="start"
+          offset={12}
+          onPressOutside={() => props.onOpenChange(false)}
+          onCancel={() => props.onOpenChange(false)}
+          style={[{ width: anchorWidth(), padding: 16, gap: 6, borderWidth: 1, borderColor: '#333337', borderRadius: 12, backgroundColor: '#242427', boxShadow: '0 12px 32px rgba(0,0,0,0.24)', transformOrigin: 'top center' }, popup.style]}
         >
-          <div className="header-search-history">
-            <span className="text-ui-sm muted">最近搜索</span>
-            {history.slice(0, 4).map(item => (
-              <button
-                type="button"
-                className="search-recent text-ui-caption"
-                key={[item.query, item.platform, item.searchMode].join(':')}
-                disabled={!connected}
-                onClick={() => {
-                  setQuery(item.query)
-                  onSearch({
-                    keyword: item.query,
-                    source: item.platform === 'qq' ? 'qq' : 'netease',
-                    mode:
-                        item.searchMode === 'all' ? 'all' : item.searchMode === 'playlist' ? 'playlist' : 'song',
+          <Text style={[font(-2), { color: muted }]}>最近搜索</Text>
+          <Each of={history().slice(0, 4)} key={item => `${item.query}:${item.platform}:${item.searchMode}`}>
+            {item => (
+              <View
+                role="button"
+                class="cursor-pointer"
+                accessibilityLabel={item().query}
+                onPress={() => {
+                  props.onQueryChange(item().query)
+                  props.onSearch({
+                    keyword: item().query,
+                    source: item().platform === 'qq' ? 'qq' : 'netease',
+                    mode: item().searchMode === 'all' ? 'all' : item().searchMode === 'playlist' ? 'playlist' : 'song',
                   })
                 }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, borderRadius: 8 }}
               >
-                <Clock size={16} />
-                <span className="truncate">{item.query}</span>
-              </button>
-            ))}
-          </div>
-
-        </div>
-      )}
-    </div>
+                <Icon name="Clock3" size={16} />
+                <Text style={[font(-1), { color: foreground, flex: 1, numberOfLines: 1 }]}>{item().query}</Text>
+              </View>
+            )}
+          </Each>
+        </Overlay>
+      </If>
+    </View>
   )
 }

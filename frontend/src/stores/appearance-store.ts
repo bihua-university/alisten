@@ -1,3 +1,6 @@
+import { setColorScheme } from 'nsh'
+import { localStorage } from '@/utils/storage'
+import { uiFontSize } from '@/utils/ui-settings'
 import { Store } from './store-base'
 
 export type Theme = 'system' | 'light' | 'dark'
@@ -20,8 +23,8 @@ class AppearanceStore extends Store<{ theme: Theme, fontSize: number }> {
   }
 
   applySettings() {
-    document.documentElement.dataset.theme = this.state.theme
-    document.documentElement.style.setProperty('--ui-font-size', `${this.state.fontSize}px`)
+    setColorScheme(this.state.theme)
+    uiFontSize.set(this.state.fontSize)
   }
 
   update(theme: Theme, fontSize = this.state.fontSize) {

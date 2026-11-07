@@ -1,14 +1,11 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import type { Signal } from 'nsh'
+import type { Store } from '@/stores/store-base'
+import { cleanup, signal } from 'nsh'
 
-interface ExternalStore<T> extends EventTarget {
-  readonly state: T
-}
-
-/** Select stable fields/arrays so unrelated changes do not render this component. */
-export function useStore<T, S>(store: ExternalStore<T>, selector: (state: T) => S): S {
-  const subscribe = useCallback((notify: () => void) => {
-    store.addEventListener('change', notify)
-    return () => store.removeEventListener('change', notify)
-  }, [store])
-  return useSyncExternalStore(subscribe, () => selector(store.state))
+export function useStore<T extends Record<string, any>, S>(store: Store<T>, selector: (state: T) => S): Signal<S> {
+  const value = signal(selector(store.state))
+  const update = () => value.set(selector(store.state))
+  store.addEventListener('change', update)
+  cleanup(() => store.removeEventListener('change', update))
+  return value
 }

@@ -1,4 +1,5 @@
 import type { PlayMode, User } from '@/types'
+import { localStorage } from '@/utils/storage'
 import { generateGravatarUrl } from '@/utils/user'
 import { notificationStore } from './notification-store'
 import { Store } from './store-base'

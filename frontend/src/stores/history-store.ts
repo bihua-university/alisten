@@ -1,4 +1,6 @@
 import type { Song } from '@/types'
+import { downloadText } from '@/utils/runtime'
+import { localStorage } from '@/utils/storage'
 import { Store } from './store-base'
 
 interface PlayHistoryItem {
@@ -146,13 +148,11 @@ class HistoryStore extends Store<HistoryState> {
 
   exportPlayHistory() {
     const data = { exportedAt: new Date().toISOString(), history: this.state.playHistory }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `music-history-${new Date().toISOString().split('T')[0]}.json`
-    link.click()
-    URL.revokeObjectURL(url)
+    void downloadText(
+      `music-history-${new Date().toISOString().split('T')[0]}.json`,
+      JSON.stringify(data, null, 2),
+      'application/json',
+    )
   }
 
   private getValidSearchHistory(): SearchHistoryItem[] {

@@ -8,89 +8,75 @@
 
 ## 项目定位
 
-**壁画音乐厅**（Alisten）是一个实时在线听歌房 Web 应用。多人在同一房间同步播放、点歌、聊天，并支持歌词同步与 PWA 安装。
+**同频**（Alisten）是一个实时在线听歌房 Web 应用。多人在同一房间同步播放、点歌、聊天，支持 Web 与 Android、歌词同步和浏览器媒体会话。
 
 ---
 
 ## 技术基线
 
-- **前端框架**：React 18.3+
-- **开发语言**：TypeScript 5.3+
-- **构建工具**：Vite 5.0+
-- **CSS 框架**：TailwindCSS 3.4+
-- **图标库**：`lucide-react`（按需导入）
-- **状态管理**：模块级 Store 类（EventTarget-based，零外部依赖）
-- **工具库**：`crypto-js`
-- **PWA**：`vite-plugin-pwa` + Workbox
-- **Node.js 版本**：建议 >= 18（CI 使用 22.x）
+- **前端框架**：Native Shell（NSH）0.4+，同一套 TSX 支持 Web、Windows、Android
+- **开发语言**：TypeScript 5.3+，NSH signals / effects，不使用 React DOM
+- **构建工具**：`nsh` CLI（[安装文档](https://nsh.dev/docs/installation)）
+- **样式**：NSH typed styles 与原生 Tailwind classes；设计 token 在 `src/theme.ts`
+- **图标**：`src/assets/icons/` 中随应用打包的 SVG，由 `components/icon.tsx` 统一引用
+- **状态管理**：模块级 EventTarget Store，组件通过 `useStore` 桥接为 NSH signal
+- **工具库**：`crypto-js`、`music-metadata`
+- **Node.js 版本**：22.x（`.node-version`）；用于依赖、Web 构建脚本、TypeScript 与 ESLint
+- **唯一前端**：业务实现位于 `src/`；Vite 仅用于读取 `.env` 与静态产物预览，不编译应用
 
 ---
 
 ## 项目结构（重要入口）
 
 ```
-src/
-├── main.tsx                   # React 入口，初始化性能与外观
-├── app.tsx                    # 主界面、导航、懒加载、房间切换
-├── hooks/use-store.ts         # useSyncExternalStore 字段选择器
-├── stores/                    # EventTarget Store，保留同步播放与 livehouse v2 协议
-│   ├── player-store.ts
-│   ├── websocket-store.ts
-│   ├── appearance-store.ts    # 主题与 --ui-font-size
-│   └── ...                    # 聊天、歌词、历史、房间、性能、PWA 等
-├── components/
-│   ├── audio-engine.tsx       # 音频、连接与媒体会话生命周期
-│   ├── header-search.tsx      # 顶部搜索与选择浮窗
-│   ├── player-bar.tsx         # Spotify 式底部播放器，播放控制仅切歌
-│   ├── listen-page.tsx        # 听歌房歌词主界面
-│   ├── room-browser.tsx       # 搜索、创建、加入房间
-│   ├── search-page.tsx        # 搜索提交后的结果页
-│   ├── queue-page.tsx
-│   ├── chat-panel.tsx
-│   ├── lyrics.tsx             # 当前行高亮，不重建歌词树
-│   ├── history-page.tsx
-│   ├── settings-modal.tsx
-│   ├── notifications.tsx
-│   └── ui.tsx                 # 公共控件与原生 dialog
-├── types/                     # UI 类型与 livehouse-protocol.ts v2 协议类型
-├── utils/                     # API、用户、时间、移动端、弹窗历史等
-├── style.css                  # 语义颜色、字号、布局
-└── styles/performance.css     # 四级性能覆盖规则
+frontend/
+├── App.tsx                    # 初始化跨端存储与浏览器桥接，挂载应用
+├── nsh.json                   # 应用 ID、图标、能力与 Web host 配置
+├── host.js                    # Web 标题、分享、媒体会话、旧 localStorage 迁移
+└── src/
+    ├── app.tsx                # 主界面、导航、房间切换与右侧栏
+    ├── theme.ts               # 语义颜色、字号、动效与响应式参数
+    ├── hooks/use-store.ts     # EventTarget Store → NSH signal
+    ├── stores/                # 保留同步播放与 livehouse v2 协议
+    ├── components/            # 歌词、搜索、队列、聊天、历史、设置等
+    ├── types/                 # UI 类型与 livehouse-protocol.ts v2 协议类型
+    ├── utils/                 # API、用户、时间、跨端存储与运行时桥接
+    └── assets/icons/          # 打包 SVG 图标
 ```
 
 ### 构建产物
 
-- `dist/` — Vite 生产构建输出目录
-- PWA 产物：`sw.js`、`workbox-*.js`、`manifest.webmanifest`
+- Web：`npm run build` 输出 `dist/`，兼容 Cloudflare Pages；原生 `nsh package` 仍输出 `.nsh/out/同频/`
+- Windows：`.nsh/out/同频/` 与同名 `.zip`
+- Android：仅 ARM64 压缩 Release，输出 `.nsh/out/alisten-android-release/Alisten-<version>-arm64-v8a-compressed-release.apk`
 
 ---
 
 ## 开发 / 构建 / 检查命令
 
 ```bash
-# 安装依赖
+# 安装依赖与 NSH CLI（https://nsh.dev/docs/installation）
 npm install
 
-# 启动开发服务器
+# Web 热更新（默认 http://127.0.0.1:8790）
 npm run dev
 
-# 类型检查
+# 类型检查与代码检查
 npm run type-check
-
-# 代码检查
 npm run lint
-
-# 代码检查并自动修复
 npm run lint:fix
 
-# 生产构建
+# Web 生产构建与预览
 npm run build
-
-# 预览构建产物
 npm run preview
+
+# Windows / Android
+nsh package App.tsx --target windows
+npm run build:android
+
 ```
 
-**质量门槛**：只要改动涉及逻辑/类型/样式，合并前至少跑 `npm run type-check` 和 `npm run lint`。若改动影响构建路径（PWA、Vite 配置等），再补一次 `npm run build`。
+**质量门槛**：只要改动涉及逻辑/类型/样式，合并前至少跑 `npm run type-check` 和 `npm run lint`。默认构建必须通过；目标平台改动还需补对应的 `nsh package`。可用 `nsh test App.tsx` 做无界面启动检查，但不新增 UI 测试文件。
 
 ### 测试约定
 
@@ -107,27 +93,29 @@ npm run preview
 - 使用语义颜色 token、统一 `text-ui-*` 字号、系统字体和明确的文字层级。
 - 点击顶部搜索展开平台 / 类型选择浮窗，提交后进入搜索页；不提供独立点歌导航 tab。
 - 普通控件圆角 8px，内容面板 12px，弹窗 16px；主题、对比度和键盘焦点都要验证。
-- 高频进度通过 ref 更新 transform，时间只在秒数变化时更新；歌词只更新当前行。
+- 高频进度通过 NSH `AnimatedValue` 以最高 30 FPS 更新 `scaleX`，不使用连续原生 timing 或 JS 逐帧循环；后台停止视觉更新，时间只在秒数变化时更新，歌词只更新当前行。
 - 页面按需加载，列表减少屏外绘制；新增效果必须有性能降级。
 
 ---
 ## 代码与模块约定
 
-### React
-- 使用函数组件和 TypeScript TSX，外部状态通过 `useStore` 选择稳定字段或数组。
-- 用 `useState` 管理局部交互，避免把播放进度、滚动等连续值放入 React state。
-- 在 `useEffect` 中建立订阅，并清理事件、定时器和 rAF。
-- `canplay` 每次加载只监听一次，重复播放快照不能重启音频。
-- 组件使用普通 DOM，公共控件复用 `components/ui.tsx`，不使用 Shadow DOM。
+### NSH 组件
+- 组件函数只运行一次；动态值必须在 JSX binding、`computed` 或 `effect` 中读取 signal。
+- 使用 `signal` 管理局部交互，避免把播放进度、滚动等连续值放入组件树重建路径。
+- 在 `effect` 中建立订阅，并用返回值或 `cleanup` 清理事件、定时器和 rAF。
+- 使用 `View`、`Text`、`Scroll`、`Image`、`Video` 与 `nsh/base` 控件；文本只能放在 `Text` 或 `Input` 中，不写 HTML 小写标签。
+- 媒体 `onLoad` 对应每次新源就绪；重复播放快照不能重启音频。
+- 不直接访问 `window`、`document`、DOM 或 `localStorage`；跨端存储走 `utils/storage.ts`，Web 专属能力走 `utils/runtime.ts` 与 `host.js`。
+
 ### 状态管理（Store 模式）
-- 所有全局状态通过 `src/stores/` 中的 Store 类管理
-- Store 基类继承 `EventTarget`，通过 `dispatchEvent('change')` 通知订阅者
-- React 组件通过 `useStore(store, selector)` 订阅更新；音频层直接订阅 Store 并清理
-- 避免在组件间直接传递复杂状态
+- 所有全局状态通过 `src/stores/` 中的 Store 类管理。
+- Store 基类继承 `EventTarget`，通过 `dispatchEvent('change')` 通知订阅者。
+- 组件通过 `useStore(store, selector)` 取得 signal；音频层直接订阅 Store 并清理。
+- 避免在组件间直接传递复杂状态。
 
 ### TypeScript
-- 严格模式：`strict: true`、`noUnusedLocals: true`、`noUnusedParameters: true`
-- 路径别名：`@/` 映射到 `src/`
+- 严格模式：`strict: true`。
+- 路径别名：`@/` 映射到 `src/`，同时配置在 `nsh.json` 与 `tsconfig.json`。
 
 ### ESLint 风格规范
 
@@ -145,7 +133,7 @@ npm run preview
 
 ### 命名约定
 - 组件文件：kebab-case（如 `chat-panel.tsx`）
-- React 组件名：PascalCase（如 `ChatPanel`）
+- NSH 组件名：PascalCase（如 `ChatPanel`）
 - 组合式函数/Store：`useXxx` / `XxxStore`（如 `playerStore`）
 - 工具函数：camelCase
 
@@ -153,14 +141,14 @@ npm run preview
 
 ## WebSocket 通信架构
 
-WebSocket 服务器地址通过环境变量 `VITE_WS_URL` 配置。Rust livehouse 是唯一房间状态持有者，gateway 按 Redis 房间归属转发；Go livehouse-api 只保留 HTTP 兼容 API。
+NSH 的 WebSocket 与 REST 默认地址集中在 `src/utils/config.ts`，Web 生产构建支持环境变量覆盖。Rust livehouse 是唯一房间状态持有者，gateway 按 Redis 房间归属转发；Go livehouse-api 只保留 HTTP 兼容 API。
 
 ### 连接方式
 - 连接 URL 格式：`${wsUrl}/ws?roomId=${roomId}&password=${password}`
 - 自动重连：**指数退避且不设次数上限**，3s → 6s → 12s → 24s → 30s(封顶)。不要改回「固定次数后放弃」，移动端切后台会导致永久失联
 - 心跳间隔：5 秒，发送 v2 `clock.ping` 请求并携带 `clientTimeMs`；服务端响应用于估计时钟偏移，同时兼作保活帧
 - **不要**仅凭「未收到心跳响应」判断连接死活。失效检测依赖死连接 write 触发的 `onerror`/`onclose`，回前台时检查 `readyState`
-- 自愈触发点：`visibilitychange` / `online` / `pageshow`。已有连接在回前台时先探活，避免无谓重连
+- 自愈触发点：NSH `lifecycle()`、Web host 的 `online` / `pageshow` 事件。已有连接在回前台时先探活，避免无谓重连
 
 ### 消息格式（livehouse v2）
 
@@ -190,56 +178,51 @@ WebSocket 服务器地址通过环境变量 `VITE_WS_URL` 配置。Rust livehous
 - 播放位置按 `Date.now() + clockOffsetMs - startedAtMs` 推导，clamp 到 `[0, durationMs]` 后除以 1000 写入音频；服务端不提供暂停和 seek
 - 播放开始时间可能领先约 200ms：负数进度应等待开始，不要误判为时钟错误
 - 按 `durationMs` 停止播放，不要把非空 `song` 当作「仍在播放」的标志
-- UI `Song.duration` 全程为毫秒；进度更新使用 `requestAnimationFrame` + `audio.timeupdate` 双循环
+- UI `Song.duration` 全程为毫秒；进度使用 `requestAnimationFrame` + NSH `Video.onProgress` 双循环
+- NSH `Video` 负责跨端音频输出，`paused`、`muted`、`volume` 由 Store 驱动，ref 仅用于同步 seek
 
 ---
 
 ## 移动端适配策略
 
-- **设备检测**：`isMobileDevice()` 用媒体查询组合「窄视口 (`max-width: 767px`) + 粗指针 (`pointer: coarse`)」，不再做 UA 嗅探（UA 嗅探识别不了上报为 macOS 的 iPad）。需要随断点变化时用 `onMobileDeviceChange()`
-- **安全区**：`index.html` 的 viewport 带 `viewport-fit=cover`，因此全屏容器需要自行补 `env(safe-area-inset-*)`（主布局与两个全屏弹窗已处理）。桌面端 env() 为 0，可无条件书写
-- **视口高度**：优先用 CSS `100dvh`（`.h-screen-mobile`、`.app-viewport`），CSS 变量 `--vh` 仅作为旧浏览器兜底，由 `setViewportHeight()` 以 rAF 合并并跳过重复值写入
-- **滚动控制**：全局阻止 `body` / `html` 滚动，仅允许特定容器滚动
-- **移动导航**：底部导航切换聆听、队列、聊天、历史和房间；搜索位于顶部
-- **返回键处理**：`modal-history.ts` 维护 dialog 堆栈，返回键仅关闭顶部弹窗
+- **设备检测**：`compact()` 读取响应式 `windowSize()`，767px 及以下使用移动布局，不做 UA 嗅探
+- **安全区**：根布局、移动导航与弹窗使用 `env(safe-area-inset-*)` 或 `safeAreaInsets()`，桌面端为 0
+- **视口高度**：根视图使用 `flex: 1` 填满 NSH surface；滚动只发生在 `Scroll` / `List` 容器内
+- **移动导航**：底部依次为聆听、搜索、待播、聊天，内容按 tab 方向平移；顶部移除 Home 和搜索，保留更多、返回、房间状态与设置。历史和房间在顶部菜单。
+- **返回键处理**：NSH `Dialog` / `Overlay` 原生处理 Escape、浏览器 Back 和 Android Back
 
 ---
 
 ## 性能优化体系
 
 ### 四级性能模式
-`performanceStore` 管理四级性能设置，通过 `document.body` 上的 class 控制全局样式：
+`performanceStore` 管理四级性能设置；组件通过 `motionDuration()` 和 `reduceMotion()` 读取实际偏好，不再向 `document.body` 写 class：
 
 | 级别 | 行为 |
 |------|------|
 | `high` | 完整交互过渡、封面阴影与局部模糊 |
-| `medium` | 平衡设置，移动端自动附加 `mobile-performance` 类 |
-| `low` | 简化动画、降低模糊强度、移除封面阴影，歌词只保留简短透明度过渡 |
-| `off` | 极简模式：禁用所有动画/模糊/阴影/渐变 |
+| `medium` | 平衡设置，保留完整歌词过渡 |
+| `low` | 缩短动画、立即定位歌词，保留必要的透明度过渡 |
+| `off` | 极简模式：禁用动画与平滑滚动，保留静态大小和高亮层级 |
 
 ### 移动端效果收敛
 
-- 平衡 / 移动模式播放器模糊降到 8px，省电为 4px，极简完全移除。
-- 不使用持续背景动画或 100px 背景光晕；封面轻阴影在省电模式移除。
+- 不使用持续背景动画或大面积背景光晕；顶部栏和底部播放器不使用模糊。
 - 极简与减少动态效果禁用动画及平滑滚动。歌词滚动必须读取实际性能偏好。
-- 新增效果需覆盖 high / medium / low / off，不能只降级少量旧类名。
+- 新增效果需覆盖 high / medium / low / off，并遵循 NSH 原生动画能力。
+
 ---
 
-## PWA 配置
+## Web 静态站点与旧缓存迁移
 
-- `vite-plugin-pwa` 在 `vite.config.ts` 中配置
-- Service Worker 策略：预缓存 + 运行时缓存 Google Fonts
-- 更新检测：每 30 分钟检查一次（仅页面可见时）
+- NSH Web 构建生成 `manifest.webmanifest` 与安装图标，静态资源带内容摘要，可部署到任意静态托管。
+- 不实现 Service Worker 离线缓存和更新提示。`cloudflare/sw.js` 仅用于注销线上遗留的旧 worker、移除对应 scope 的 precache，防止旧缓存继续拦截新站点。
 
 ---
 
 ## 环境变量
 
-| 变量 | 说明 |
-|------|------|
-| `VITE_WS_URL` | WebSocket 服务器地址 |
-| `VITE_API_URL` | REST API 基础地址 |
-| `VITE_APP_NAME` | 应用显示名称 |
+`npm run build` 通过 `scripts/build-web.mjs` 读取原有 `VITE_WS_URL`、`VITE_API_URL`、`VITE_APP_NAME` 并通过 Web host 注入 NSH；支持 Vite `.env` 文件和控制台环境变量优先级。Android 和直接 `nsh run` 不读取 Vite 环境变量，其默认配置仍在 `src/utils/config.ts`。Cloudflare 配置见 `README.md`。
 
 ---
 
@@ -264,9 +247,9 @@ perf: 性能优化
 - **UI 变更要对齐项目规范**：DESIGN.md 中的语义颜色、音乐界面层级和一致的交互态
 - **不编辑生成物或依赖目录**：不要改 `dist/`、不要改 `node_modules/`
 - **状态管理注意**：全局状态分布在各 Store 中，修改时注意是否影响其他组件
-- **性能敏感**：新增动画/效果时，考虑在 `performance.css` 中添加对应级别的降级规则
+- **性能敏感**：新增动画/效果时，考虑通过 `performanceStore` 添加对应级别的降级规则
 - **移动端优先**：任何 UI 改动需同时考虑桌面端和移动端体验
 
 ---
 
-*最后更新：2026年10月16日*
+*最后更新：2026年11月7日*

@@ -1,92 +1,52 @@
 import type { Song } from '@/types'
+import { host, platform } from 'nsh'
+import { normalizeArtworkUrl } from '@/utils/artwork-url'
+import { onHostEvent } from '@/utils/runtime'
 
-const actionHandlers: Map<MediaSessionAction, (() => void) | null> = new Map()
+type MediaAction = 'play' | 'pause' | 'previoustrack' | 'nexttrack' | 'seekbackward' | 'seekforward' | 'stop'
+
+const actionHandlers = new Map<MediaAction, (() => void) | null>()
+let removeActionListener: (() => void) | undefined
 
 function isSupported() {
-  return 'mediaSession' in navigator && 'setActionHandler' in navigator.mediaSession
+  return platform.os === 'web' && host.available()
 }
 
 function updateMetadata(song: Song | null) {
   if (!isSupported())
     return
-  if (!song) {
-    navigator.mediaSession.metadata = null
-    navigator.mediaSession.playbackState = 'none'
-    return
-  }
-  try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: song.title,
-      artist: song.artist,
-      album: song.album || '未知专辑',
-      artwork: [{ src: song.cover }],
-    })
-  } catch (error) {
-    console.warn('更新媒体会话元数据失败:', error)
-  }
+  const metadata = song
+    ? {
+        title: song.title,
+        artist: song.artist,
+        album: song.album || '未知专辑',
+        artwork: [{ src: normalizeArtworkUrl(song.cover) || '' }],
+      }
+    : null
+  void host.call('media.update', { song: metadata }).catch(error => console.warn('更新媒体会话失败:', error))
 }
 
-function setupActionHandlers(callbacks: {
-  onPlay?: (() => void) | null
-  onPause?: (() => void) | null
-  onPreviousTrack?: (() => void) | null
-  onNextTrack?: (() => void) | null
-  onSeekBackward?: (() => void) | null
-  onSeekForward?: (() => void) | null
-  onStop?: (() => void) | null
-}) {
+function setupActionHandlers(callbacks: Partial<Record<MediaAction, (() => void) | null>>) {
   if (!isSupported())
     return
-  try {
-    if (callbacks.onPlay !== undefined) {
-      actionHandlers.set('play', callbacks.onPlay)
-      navigator.mediaSession.setActionHandler('play', callbacks.onPlay)
-    }
-    if (callbacks.onPause !== undefined) {
-      actionHandlers.set('pause', callbacks.onPause)
-      navigator.mediaSession.setActionHandler('pause', callbacks.onPause)
-    }
-    if (callbacks.onPreviousTrack !== undefined) {
-      actionHandlers.set('previoustrack', callbacks.onPreviousTrack)
-      navigator.mediaSession.setActionHandler('previoustrack', callbacks.onPreviousTrack)
-    }
-    if (callbacks.onNextTrack !== undefined) {
-      actionHandlers.set('nexttrack', callbacks.onNextTrack)
-      navigator.mediaSession.setActionHandler('nexttrack', callbacks.onNextTrack)
-    }
-    if (callbacks.onSeekBackward !== undefined) {
-      actionHandlers.set('seekbackward', callbacks.onSeekBackward)
-      navigator.mediaSession.setActionHandler('seekbackward', callbacks.onSeekBackward)
-    }
-    if (callbacks.onSeekForward !== undefined) {
-      actionHandlers.set('seekforward', callbacks.onSeekForward)
-      navigator.mediaSession.setActionHandler('seekforward', callbacks.onSeekForward)
-    }
-    if (callbacks.onStop !== undefined) {
-      actionHandlers.set('stop', callbacks.onStop)
-      navigator.mediaSession.setActionHandler('stop', callbacks.onStop)
-    }
-  } catch (error) {
-    console.warn('设置媒体会话操作处理器失败:', error)
-  }
+  removeActionListener?.()
+  actionHandlers.clear()
+  for (const [action, handler] of Object.entries(callbacks) as [MediaAction, (() => void) | null][])
+    actionHandlers.set(action, handler)
+  const actions = [...actionHandlers].filter(([, handler]) => handler).map(([action]) => action)
+  void host.call('media.actions', { actions }).catch(error => console.warn('设置媒体会话操作失败:', error))
+  removeActionListener = onHostEvent('media.action', ({ action }: { action: MediaAction }) => {
+    actionHandlers.get(action)?.()
+  })
 }
 
 function clearSession() {
-  if (!isSupported())
-    return
-  try {
-    navigator.mediaSession.metadata = null
-    navigator.mediaSession.playbackState = 'none'
-    const actions: MediaSessionAction[] = ['play', 'pause', 'previoustrack', 'nexttrack', 'seekbackward', 'seekforward', 'stop']
-    actions.forEach((action) => {
-      try {
-        navigator.mediaSession.setActionHandler(action, null)
-        actionHandlers.delete(action)
-      } catch { /* ignore */ }
-    })
-  } catch (error) {
-    console.warn('清除媒体会话失败:', error)
-  }
+  updateMetadata(null)
+  removeActionListener?.()
+  removeActionListener = undefined
+  actionHandlers.clear()
+  if (isSupported())
+    void host.call('media.actions', { actions: [] })
 }
 
 export const mediaSessionStore = {

@@ -1,4 +1,5 @@
 import type { LyricLine } from '@/types'
+import { reduceMotion } from 'nsh'
 import { isValidLrc, parseLyrics } from '@/utils/lrcParser'
 import { performanceStore } from './performance-store'
 import { Store } from './store-base'
@@ -8,7 +9,12 @@ interface LyricsState {
   currentLyricIndex: number
 }
 
-const registeredContainers = new Set<HTMLElement>()
+export interface LyricContainer {
+  reset: () => void
+  scrollToCenter: (index: number, smooth: boolean) => void
+}
+
+const registeredContainers = new Set<LyricContainer>()
 let scrollRafId: number | null = null
 
 class LyricsStore extends Store<LyricsState> {
@@ -16,36 +22,22 @@ class LyricsStore extends Store<LyricsState> {
     super({ currentLyrics: [], currentLyricIndex: -1 })
   }
 
-  private scrollToCenter(container: HTMLElement, index: number, smooth = true) {
-    let before: HTMLElement | undefined
-    let after: HTMLElement | undefined
-    for (const line of container.querySelectorAll<HTMLElement>('[data-lyric-index]')) {
-      const lineIndex = Number(line.dataset.lyricIndex)
-      if (lineIndex <= index)
-        before = line
-      if (lineIndex >= index) {
-        after = line
-        break
-      }
+  private resetScroll() {
+    if (scrollRafId !== null) {
+      cancelAnimationFrame(scrollRafId)
+      scrollRafId = null
     }
-    before ??= after
-    after ??= before
-    if (!before || !after)
-      return
-    // During a silent cue, center the boundary between the surrounding words
-    // without inserting an empty row in the layout.
-    const center = (before.offsetTop + before.clientHeight / 2 + after.offsetTop + after.clientHeight / 2) / 2
-    container.scrollTo({ top: Math.max(0, center - container.clientHeight / 2), behavior: smooth ? 'smooth' : 'instant' })
+    registeredContainers.forEach(container => container.reset())
   }
 
-  syncScrollAllContainers(smooth = !performanceStore.state.reducedMotion && !['low', 'off'].includes(performanceStore.state.level) && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  syncScrollAllContainers(smooth = !reduceMotion() && !performanceStore.state.reducedMotion && !['low', 'off'].includes(performanceStore.state.level)) {
     registeredContainers.forEach((container) => {
-      this.scrollToCenter(container, this.state.currentLyricIndex, smooth)
+      container.scrollToCenter(this.state.currentLyricIndex, smooth)
     })
   }
 
   setCurrentLyrics(lyrics: LyricLine[]) {
-    // Keep silent cues in the timeline only; they never create lyric DOM rows.
+    this.resetScroll()
     const compactLyrics: LyricLine[] = []
     for (const line of lyrics) {
       const text = line.text.trim()
@@ -69,6 +61,7 @@ class LyricsStore extends Store<LyricsState> {
   }
 
   clearLyrics() {
+    this.resetScroll()
     this.setState({ currentLyrics: [], currentLyricIndex: -1 })
   }
 
@@ -97,9 +90,8 @@ class LyricsStore extends Store<LyricsState> {
         right = mid - 1
       }
     }
-    if (result !== this.state.currentLyricIndex) {
+    if (result !== this.state.currentLyricIndex)
       this.setCurrentLyricIndex(result)
-    }
   }
 
   loadLrcLyrics(lrcContent: string) {
@@ -138,12 +130,12 @@ class LyricsStore extends Store<LyricsState> {
     }
   }
 
-  registerContainer(el: HTMLElement) {
-    registeredContainers.add(el)
+  registerContainer(container: LyricContainer) {
+    registeredContainers.add(container)
   }
 
-  unregisterContainer(el: HTMLElement) {
-    registeredContainers.delete(el)
+  unregisterContainer(container: LyricContainer) {
+    registeredContainers.delete(container)
   }
 }
 

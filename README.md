@@ -1,10 +1,10 @@
-## Alisten
+## 同频（Alisten）
 
 一个音乐播放和房间管理系统，支持从网易云音乐、QQ音乐等平台获取音乐。
 
 ## 仓库结构
 
-本仓库是 Rust gateway/livehouse-worker + Go livehouse-api/musichub + React 前端的 monorepo：
+本仓库是 Rust gateway/livehouse-worker + Go livehouse-api/musichub + NSH 前端的 monorepo：
 
 | 路径 | 内容 |
 | --- | --- |
@@ -13,7 +13,7 @@
 | `crates/nacos-client/` | Rust 服务共用的轻量 Nacos client |
 | `cmd/livehouse-api` | Go HTTP 服务：房间列表、点歌准备、搜索与推荐，不持有房间状态 |
 | `cmd/musichub` | 音乐平台服务：曲库查询、播放链接、响度分析 |
-| `frontend/` | React 18 + TypeScript + Vite + TailwindCSS，支持 PWA |
+| `frontend/` | Native Shell（NSH）+ TypeScript，共享 Web 与 Android 实现 |
 | `internal/` | Go 共享包：`rpc/livehouse` worker client、鉴权与 Nacos 等；HTTP handler 位于 `cmd/livehouse-api/internal/service` |
 | `docs/` | 设计与协议说明 |
 
@@ -130,4 +130,4 @@ npm run lint
 npm run build
 ```
 
-构建时通过 `VITE_WS_URL`、`VITE_API_URL`、`VITE_APP_NAME` 注入地址，默认分别为 `ws://localhost:8080`、`http://localhost:8080` 和音乐共享房间。前端规范见 [frontend/AGENTS.md](frontend/AGENTS.md) 与 [frontend/DESIGN.md](frontend/DESIGN.md)。
+Web 构建通过 `VITE_WS_URL`、`VITE_API_URL`、`VITE_APP_NAME` 注入公开配置，读取 `.env.production` 与控制台环境变量，产物位于 `frontend/dist/`。开发服务需安装 NSH CLI；Web 生产构建会自动准备固定版本工具链。开发模式和 Android 的默认地址在 `frontend/src/utils/config.ts`。部署说明见 [frontend/README.md](frontend/README.md)。前端规范见 [frontend/AGENTS.md](frontend/AGENTS.md) 与 [frontend/DESIGN.md](frontend/DESIGN.md)。

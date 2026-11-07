@@ -1,0 +1,15 @@
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+/*.wasm
+  Content-Type: application/wasm
+
+/sw.js
+  Content-Type: application/javascript
+  Cache-Control: no-cache, no-store, must-revalidate

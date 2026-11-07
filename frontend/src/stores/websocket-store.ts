@@ -10,9 +10,12 @@ import type {
   StoreEventDataMap,
   StoreEventType,
 } from '@/types/livehouse-protocol'
+import { effect } from 'nsh'
 import { pickMusic } from '@/utils/api'
 import { getAppConfig } from '@/utils/config'
 import { applyEnvironment } from '@/utils/environment'
+import { lifecycle } from '@/utils/lifecycle'
+import { onHostEvent } from '@/utils/runtime'
 import { notificationStore } from './notification-store'
 import { roomStore } from './room-store'
 import { Store } from './store-base'
@@ -22,6 +25,7 @@ interface WebSocketState {
   connectionStatus: ConnectionStatus
   isConnecting: boolean
   reconnectAttempts: number
+  connectionError: string
 }
 
 const config: WebSocketConfig = {
@@ -77,7 +81,7 @@ let bestRoundTripMs = Number.POSITIVE_INFINITY
 
 class WebSocketStore extends Store<WebSocketState> {
   constructor() {
-    super({ ws: null, connectionStatus: 'disconnected', isConnecting: false, reconnectAttempts: 0 })
+    super({ ws: null, connectionStatus: 'disconnected', isConnecting: false, reconnectAttempts: 0, connectionError: '' })
   }
 
   /**
@@ -104,6 +108,14 @@ class WebSocketStore extends Store<WebSocketState> {
     clockOffsetMs = serverTimeMs - (c0 + c1) / 2
   }
 
+  private seedClockOffset(serverTimeMs: number) {
+    // The first snapshot can arrive before the first ping response. Its
+    // server timestamp is a safe initial anchor even with a skewed phone clock.
+    // A measured round trip always takes priority over this provisional value.
+    if (!Number.isFinite(bestRoundTripMs) && Number.isFinite(serverTimeMs) && serverTimeMs > 0)
+      clockOffsetMs = serverTimeMs - Date.now()
+  }
+
   private clearPendingRequests(reason: string) {
     pendingRequests.forEach((pending) => {
       clearTimeout(pending.timeoutTimer)
@@ -113,6 +125,32 @@ class WebSocketStore extends Store<WebSocketState> {
   }
 
   private revisions = new Map<string, number>()
+  private connectingSince = 0
+  private reconnectAt = 0
+
+  /** Native service wakes this even while the Activity is stopped. */
+  private backgroundTick = () => {
+    if (manuallyClosed)
+      return
+    if (this.state.isConnecting) {
+      if (Date.now() - this.connectingSince >= 35_000)
+        this.restartConnection('连接建立超时')
+      return
+    }
+    const ws = this.state.ws
+    if (this.state.connectionStatus === 'connected') {
+      if (ws?.readyState !== WebSocket.OPEN) {
+        if (ws)
+          this.handleConnectionLoss(ws)
+        else
+          this.restartConnection('后台连接失效')
+      } else {
+        void this.sendHeartbeat()
+      }
+    } else if (Date.now() >= this.reconnectAt) {
+      this.connect()
+    }
+  }
 
   private acceptRevision(domain: string, revision: number): boolean {
     if (revision <= (this.revisions.get(domain) ?? -1))
@@ -132,6 +170,7 @@ class WebSocketStore extends Store<WebSocketState> {
     }
     for (const domain of ['queue', 'playback', 'members', 'settings', 'chat'])
       this.revisions.set(domain, snapshot.revision)
+    this.seedClockOffset(snapshot.serverTimeMs)
     roomStore.updateRoomInfo(snapshot.room)
     this.emit('queue.updated', snapshot.queue)
     this.emit('playback.updated', snapshot.playback)
@@ -149,8 +188,10 @@ class WebSocketStore extends Store<WebSocketState> {
           this.emit('queue.updated', message.data.queue)
         break
       case 'playback.changed':
-        if (this.acceptRevision('playback', message.data.revision))
+        if (this.acceptRevision('playback', message.data.revision)) {
+          this.seedClockOffset(message.data.playback.serverTimeMs)
           this.emit('playback.updated', message.data.playback)
+        }
         break
       case 'members.changed':
         if (this.acceptRevision('members', message.data.revision))
@@ -178,10 +219,10 @@ class WebSocketStore extends Store<WebSocketState> {
     }
   }
 
-  private handleMessage(event: MessageEvent) {
+  private handleMessage(event: WebSocketMessageEvent) {
     let message: any
     try {
-      if (!event.data)
+      if (!event.data || typeof event.data !== 'string')
         return
       message = JSON.parse(event.data)
     } catch {
@@ -225,6 +266,7 @@ class WebSocketStore extends Store<WebSocketState> {
       pending.reject(new RequestError(message.error.code, message.error.message))
       return
     }
+    this.seedClockOffset(message.data?.serverTimeMs)
     pending.resolve(message.data)
   }
 
@@ -271,7 +313,8 @@ class WebSocketStore extends Store<WebSocketState> {
     this.clearReconnectTimer()
     this.revisions.clear()
     manuallyClosed = false
-    this.setState({ isConnecting: true, connectionStatus: 'connecting' })
+    this.connectingSince = Date.now()
+    this.setState({ isConnecting: true, connectionStatus: 'connecting', connectionError: '' })
     this.bindLifecycle()
 
     try {
@@ -281,7 +324,7 @@ class WebSocketStore extends Store<WebSocketState> {
       const wsUrl = applyEnvironment(new URL('/ws', getAppConfig().websocket.url))
       wsUrl.search = new URLSearchParams([...wsUrl.searchParams, ...params]).toString()
 
-      console.log('连接 WebSocket:', wsUrl)
+      console.log('连接 WebSocket:', wsUrl.origin, roomStore.state.id)
       const ws = new WebSocket(wsUrl.toString())
 
       ws.onopen = () => {
@@ -304,17 +347,50 @@ class WebSocketStore extends Store<WebSocketState> {
       }
 
       ws.onerror = (error) => {
-        console.error('WebSocket 连接错误:', error)
+        if (this.state.ws !== ws)
+          return
+        console.error('WebSocket 连接错误:', error.message || '连接失败（运行时未提供详情）')
+        this.setState({ connectionError: error.message || '连接失败' })
         this.handleConnectionLoss(ws)
       }
 
       this.setState({ ws })
     } catch (error) {
       console.error('创建 WebSocket 连接失败:', error)
-      this.setState({ connectionStatus: 'error', isConnecting: false })
+      this.setState({ connectionStatus: 'error', isConnecting: false, connectionError: error instanceof Error ? error.message : String(error) })
       if (!manuallyClosed)
         this.scheduleReconnect()
     }
+  }
+
+  /** Initial joins keep the password dialog open until authentication succeeds. */
+  connectAndWait(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let onChange: () => void
+      const finish = (error?: Error) => {
+        clearTimeout(timer)
+        this.removeEventListener('change', onChange)
+        if (error)
+          reject(error)
+        else
+          resolve()
+      }
+      onChange = () => {
+        if (this.state.connectionStatus === 'connected')
+          finish()
+        else if (['error', 'reconnecting', 'disconnected'].includes(this.state.connectionStatus))
+          finish(new Error('加入失败，请检查房间密码或网络后重试。'))
+      }
+      timer = setTimeout(() => finish(new Error('连接房间超时，请检查网络后重试。')), 35_000)
+      this.addEventListener('change', onChange)
+      try {
+        this.connect()
+        onChange()
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
   }
 
   private resetClockSamples() {
@@ -337,6 +413,7 @@ class WebSocketStore extends Store<WebSocketState> {
     )
 
     this.setState({ connectionStatus: 'reconnecting', reconnectAttempts: attempts })
+    this.reconnectAt = Date.now() + delay
     console.log(`准备第 ${attempts} 次重连，${Math.round(delay / 1000)}s 后重试...`)
 
     reconnectTimer = setTimeout(() => {
@@ -358,6 +435,7 @@ class WebSocketStore extends Store<WebSocketState> {
    */
   private startHeartbeat() {
     this.stopHeartbeat()
+    void this.sendHeartbeat()
     heartbeatTimer = setInterval(() => {
       this.sendHeartbeat()
     }, config.heartbeatInterval)
@@ -430,7 +508,7 @@ class WebSocketStore extends Store<WebSocketState> {
   }
 
   private handleVisibilityChange = () => {
-    if (document.hidden || manuallyClosed)
+    if (lifecycle() === 'background' || manuallyClosed)
       return
 
     if (this.state.connectionStatus === 'connected') {
@@ -438,7 +516,6 @@ class WebSocketStore extends Store<WebSocketState> {
       return
     }
 
-    // 已有连接正在建立时不必打断握手
     if (this.state.isConnecting)
       return
 
@@ -457,29 +534,31 @@ class WebSocketStore extends Store<WebSocketState> {
     this.restartConnection('网络恢复')
   }
 
-  /** bfcache 恢复：整个页面被冻结后唤醒，socket 基本已经失效 */
-  private handlePageShow = (event: PageTransitionEvent) => {
+  private handlePageShow = (event: { persisted: boolean }) => {
     if (!event.persisted || manuallyClosed)
       return
     this.restartConnection('页面从缓存恢复')
   }
 
   private bindLifecycle() {
-    if (lifecycleBound || typeof document === 'undefined')
+    if (lifecycleBound)
       return
     lifecycleBound = true
-    document.addEventListener('visibilitychange', this.handleVisibilityChange)
-    window.addEventListener('online', this.handleOnline)
-    window.addEventListener('pageshow', this.handlePageShow)
+    effect(() => {
+      if (lifecycle() !== 'background')
+        this.handleVisibilityChange()
+    })
+    onHostEvent('app.online', this.handleOnline)
+    onHostEvent('app.network.changed', () => {
+      if (!manuallyClosed)
+        this.restartConnection('Android 默认网络恢复或切换')
+    })
+    onHostEvent('app.connection.tick', this.backgroundTick)
+    onHostEvent('app.pageshow', this.handlePageShow)
   }
 
   private unbindLifecycle() {
-    if (!lifecycleBound)
-      return
-    lifecycleBound = false
-    document.removeEventListener('visibilitychange', this.handleVisibilityChange)
-    window.removeEventListener('online', this.handleOnline)
-    window.removeEventListener('pageshow', this.handlePageShow)
+    // The store is a singleton; its lifecycle listeners remain dormant while manuallyClosed is true.
   }
 
   disconnect() {
